@@ -29,27 +29,53 @@ jobs:
           channel: stable
           cache: true
 
-      # 4) توليد ملفات Android إن كانت ناقصة
-      #    (يحافظ على كل كود lib/ ويضيف مجلد android/ فقط)
-      - name: Ensure Android project files
+      # 4) توليد ملفات Android من الصفر (يتجنّب تعارض v1 embedding)
+      #    نحذف أي android/ ناقص أو قديم، ثم نعيد توليده بصيغة v2 الصحيحة.
+      #    هذا يحافظ على كل كود lib/ و pubspec.yaml.
+      - name: Regenerate Android project files
         run: |
-          if [ ! -d "android" ]; then
-            echo "مجلد android/ غير موجود — يولّده Flutter الآن"
-            flutter create --platforms=android --project-name jisr .
-          fi
+          # احتفظ بالإذن المخصص للميكروفون إن أردت لاحقاً
+          rm -rf android
+          flutter create --platforms=android --project-name jisr .
+          echo "--- تأكيد صيغة v2 embedding ---"
+          grep -r "flutterEmbedding" android/app/src/main/AndroidManifest.xml || true
 
-      # 5) جلب الحزم
+      # 5) حقن أذونات الميكروفون/الإنترنت/الفوترة في الـ manifest المولّد
+      #    (flutter create ينتج manifest أساسياً بدونها)
+      - name: Inject permissions
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          python3 - "$MANIFEST" <<'PY'
+          import sys, re
+          p = sys.argv[1]
+          s = open(p, encoding="utf-8").read()
+          perms = (
+              '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+              '    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n'
+              '    <uses-permission android:name="com.android.vending.BILLING"/>\n'
+          )
+          if "RECORD_AUDIO" not in s:
+              s = s.replace("<manifest", perms and "<manifest", 1)
+              # أدرج الأذونات بعد سطر <manifest ...>
+              s = re.sub(r"(<manifest[^>]*>\n)", r"\1" + perms, s, count=1)
+          open(p, "w", encoding="utf-8").write(s)
+          print("✅ أُضيفت الأذونات")
+          PY
+          echo "--- الأذونات الحالية ---"
+          grep "uses-permission" "$MANIFEST" || true
+
+      # 6) جلب الحزم
       - name: Get dependencies
         run: flutter pub get
 
-      # 6) بناء APK
+      # 7) بناء APK
       #    غيّر API_BASE_URL لعنوان سيرفرك الوسيط
       - name: Build APK
         run: |
           flutter build apk --release \
             --dart-define=API_BASE_URL=https://your-server.example.com
 
-      # 7) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
+      # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
