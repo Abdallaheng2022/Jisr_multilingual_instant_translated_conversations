@@ -142,10 +142,46 @@ async function handleTTS(req, res, url) {
 
 /* ------------------------------------------------------------------ */
 /* الترجمة: مرّرها لأي مزود ترجمة. هنا مثال بسيط عبر متغير بيئة.        */
-/* اضبط TRANSLATE_URL لخدمة ترجمة تقبل {text,from,to} وتعيد {translated} */
-/* أو استبدل الجسم باستدعاء Google/DeepL/LibreTranslate.               */
+/* كل الخدمات تعمل على نفس الـ Space (SPACE = INFERENCE_BASE_URL):        */
+/*   /tts /translate /stt — لا حاجة لمتغيرات منفصلة.                       */
 /* ------------------------------------------------------------------ */
-const TRANSLATE_URL = process.env.TRANSLATE_URL || "";
+
+/**
+ * مُنادٍ عام لأي endpoint في Gradio (نمط الخطوتين: call ثم SSE).
+ * يعيد أول عنصر من مصفوفة النتيجة (نص أو كائن ملف {url}).
+ */
+async function callGradio(endpoint, dataArray, resultTimeoutMs = 180_000) {
+  const callRes = await fetch(`${SPACE}/gradio_api/call/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...hfHeaders() },
+    body: JSON.stringify({ data: dataArray }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!callRes.ok) throw new Error(`${endpoint} call failed: HTTP ${callRes.status}`);
+  const { event_id } = await callRes.json();
+  if (!event_id) throw new Error(`No event_id from ${endpoint}`);
+
+  const sseRes = await fetch(`${SPACE}/gradio_api/call/${endpoint}/${event_id}`, {
+    headers: hfHeaders(),
+    signal: AbortSignal.timeout(resultTimeoutMs),
+  });
+  if (!sseRes.ok) throw new Error(`${endpoint} result failed: HTTP ${sseRes.status}`);
+
+  const raw = await sseRes.text();
+  let event = "", result = null;
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) {
+      const data = line.slice(5).trim();
+      if (event === "error") throw new Error(`${endpoint} error: ${data}`);
+      if (event === "complete") {
+        const parsed = JSON.parse(data);
+        result = Array.isArray(parsed) ? parsed[0] : parsed;
+      }
+    }
+  }
+  return result;
+}
 
 async function handleTranslate(req, res) {
   const body = await readJSON(req);
@@ -156,21 +192,9 @@ async function handleTranslate(req, res) {
   if (from === to) return json(res, 200, { ok: true, translated: text });
 
   try {
-    // مثال باستخدام LibreTranslate-style API؛ عدّله لمزودك.
-    if (!TRANSLATE_URL) {
-      // احتياط: بدون مزود، أعِد النص كما هو مع تنبيه (لتعمل الواجهة أثناء التطوير)
-      return json(res, 200, { ok: true, translated: text, note: "no TRANSLATE_URL set" });
-    }
-    const r = await fetch(TRANSLATE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q: text, source: from, target: to, format: "text" }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!r.ok) throw new Error(`translate HTTP ${r.status}`);
-    const data = await r.json();
-    const translated = data.translatedText || data.translated || text;
-    json(res, 200, { ok: true, translated });
+    // ينادي endpoint الترجمة على الـ Space: translate(text, source, target)
+    const translated = await callGradio("translate", [text, from, to], 120_000);
+    json(res, 200, { ok: true, translated: (translated || text) });
   } catch (e) {
     console.error("[translate]", e.message);
     json(res, 502, { ok: false, error: e.message });
@@ -180,30 +204,51 @@ async function handleTranslate(req, res) {
 /* ------------------------------------------------------------------ */
 /* التفريغ الصوتي (STT): يستقبل ملف multipart ويعيد النص.              */
 /* مرّره لـ Whisper/ElevenLabs Scribe. هنا هيكل جاهز للربط.           */
-/* اضبط STT_URL لخدمة تقبل الملف الصوتي وتعيد النص.                   */
+/* التفريغ الصوتي: يرفع الملف لـ Gradio ثم ينادي endpoint الخاص بـ stt. */
 /* ------------------------------------------------------------------ */
-const STT_URL = process.env.STT_URL || "";
+
+/** يرفع ملفاً لـ Gradio ويعيد مرجع الملف الذي تقبله الدالة. */
+async function uploadToGradio(buffer, filename, contentType) {
+  const boundary = "----jisr" + Date.now();
+  const head = Buffer.from(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="files"; filename="${filename}"\r\n` +
+    `Content-Type: ${contentType}\r\n\r\n`
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const body = Buffer.concat([head, buffer, tail]);
+
+  const r = await fetch(`${SPACE}/gradio_api/upload`, {
+    method: "POST",
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      ...hfHeaders(),
+    },
+    body,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!r.ok) throw new Error(`upload failed: HTTP ${r.status}`);
+  const paths = await r.json(); // مصفوفة مسارات على الخادم
+  const p = Array.isArray(paths) ? paths[0] : paths;
+  // الدالة تتوقع كائن ملف: نمرّر المسار كـ path
+  return { path: p, meta: { _type: "gradio.FileData" }, url: `${SPACE}/gradio_api/file=${p}` };
+}
 
 async function handleSTT(req, res) {
-  // ملاحظة: هذا السيرفر بلا تبعيات، لذا نقرأ الجسم الخام.
-  // للتبسيط نتوقع أن يرسل التطبيق الصوت، ونمرّره كما هو لخدمة STT.
-  // في الإنتاج استخدم مكتبة multipart (مثل busboy) لتحليل الملف بدقة.
-  if (!STT_URL) {
-    return json(res, 200, { ok: true, text: "", note: "no STT_URL set — configure it" });
-  }
   try {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const buf = Buffer.concat(chunks);
-    const r = await fetch(STT_URL, {
-      method: "POST",
-      headers: { "Content-Type": req.headers["content-type"] || "application/octet-stream" },
-      body: buf,
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!r.ok) throw new Error(`stt HTTP ${r.status}`);
-    const data = await r.json();
-    json(res, 200, { ok: true, text: (data.text || "").trim() });
+    if (buf.length === 0) return json(res, 400, { ok: false, error: "empty audio" });
+
+    // لغة اختيارية من ترويسة مخصّصة
+    const lang = req.headers["x-lang"] || "";
+    const ct = req.headers["content-type"] || "audio/m4a";
+    const ext = ct.includes("wav") ? "wav" : ct.includes("mp4") ? "mp4" : "m4a";
+
+    const fileRef = await uploadToGradio(buf, `audio.${ext}`, ct);
+    const text = await callGradio("stt", [fileRef, lang], 120_000);
+    json(res, 200, { ok: true, text: (text || "").trim() });
   } catch (e) {
     console.error("[stt]", e.message);
     json(res, 502, { ok: false, error: e.message });

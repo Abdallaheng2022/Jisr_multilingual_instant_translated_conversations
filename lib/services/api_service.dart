@@ -63,17 +63,24 @@ class ApiService {
   }
 
   /// تفريغ صوتي (STT): يرفع ملف الصوت المسجّل ويعيد النص.
-  /// يمرّره السيرفر الوسيط لخدمة تفريغ (مثل Whisper / ElevenLabs Scribe).
+  /// يمرّره السيرفر الوسيط لخدمة تفريغ (Whisper على نفس الـ Space).
   Future<String> transcribe({
     required String path,
     required String lang,
   }) async {
-    final req = http.MultipartRequest('POST', _u('/api/voice/stt'));
-    req.fields['lang'] = lang;
-    req.files.add(await http.MultipartFile.fromPath('audio', path));
-    final streamed =
-        await _client.send(req).timeout(const Duration(seconds: 60));
-    final res = await http.Response.fromStream(streamed);
+    final bytes = await File(path).readAsBytes();
+    final ct = path.endsWith('.wav')
+        ? 'audio/wav'
+        : path.endsWith('.mp4')
+            ? 'audio/mp4'
+            : 'audio/m4a';
+    final res = await _client
+        .post(
+          _u('/api/voice/stt'),
+          headers: {'Content-Type': ct, 'x-lang': lang},
+          body: bytes,
+        )
+        .timeout(const Duration(seconds: 120));
     if (res.statusCode != 200) {
       throw ApiException('فشل التفريغ الصوتي (HTTP ${res.statusCode})');
     }
