@@ -19,7 +19,7 @@ dependencies:
   http: ^1.2.2
 
   # Audio recording + playback
-  record: ^5.1.2
+  record: ^6.0.0
   audioplayers: ^6.1.0
 
   # Local persistence (free-message counter, subscription cache, settings)
