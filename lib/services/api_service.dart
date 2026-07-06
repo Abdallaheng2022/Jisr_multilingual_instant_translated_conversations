@@ -130,15 +130,19 @@ class ApiService {
   void dispose() => _client.close();
 }
 
-enum HealthStatus { connected, sleeping, notConfigured, offline }
+enum HealthStatus {
+  connected,
+  sleeping,
+  notConfigured,
+  offline;
 
-extension HealthStatusX on HealthStatus {
   String get label => switch (this) {
         HealthStatus.connected => 'متصل',
         HealthStatus.sleeping => 'الخادم نائم — افتح المساحة',
         HealthStatus.notConfigured => 'الخادم غير مضبوط',
         HealthStatus.offline => 'لا يوجد اتصال',
       };
+
   bool get isReady => this == HealthStatus.connected;
 }
 
