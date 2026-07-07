@@ -69,11 +69,9 @@ jobs:
         run: flutter pub get
 
       # 7) بناء APK
-      #    غيّر API_BASE_URL لعنوان سيرفرك الوسيط
+      #    العنوان مثبّت في main.dart، فلا حاجة لـ --dart-define
       - name: Build APK
-        run: |
-          flutter build apk --release \
-            --dart-define=API_BASE_URL= https://abdo96-chatterbox.hf.space
+        run: flutter build apk --release
 
       # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
