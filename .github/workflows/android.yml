@@ -73,7 +73,7 @@ jobs:
       - name: Build APK
         run: |
           flutter build apk --release \
-            --dart-define=API_BASE_URL=https://your-server.example.com
+            --dart-define=API_BASE_URL= https://abdo96-chatterbox.hf.space
 
       # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
