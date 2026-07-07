@@ -11,11 +11,11 @@ import 'state/translation_state.dart';
 import 'screens/home_shell.dart';
 import 'theme/app_theme.dart';
 
-/// ⚠️ غيّر هذا لعنوان السيرفر الوسيط (api-server.js) عند النشر.
-/// للتجربة المحلية استخدم عنوان جهازك على الشبكة، أو رابط الاستضافة.
+/// رابط الـ Space المتصل به التطبيق مباشرة.
+/// مضبوط افتراضياً على Space الخاص بك — غيّره إن نقلته.
 const kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://your-server.example.com',
+  defaultValue: 'https://abdo96-chatterbox.hf.space',
 );
 
 void main() {
