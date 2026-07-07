@@ -29,15 +29,19 @@ jobs:
           channel: stable
           cache: true
 
-      # 4) توليد ملفات Android من الصفر (يتجنّب تعارض v1 embedding)
-      #    نحذف أي android/ ناقص أو قديم، ثم نعيد توليده بصيغة v2 الصحيحة.
-      #    هذا يحافظ على كل كود lib/ و pubspec.yaml.
+      # 4) توليد ملفات Android في مشروع مؤقت نظيف ثم نسخ مجلد android فقط
+      #    (نتجنّب flutter create فوق pubspec المخصص لأنه يفشل في Flutter 3.44)
       - name: Regenerate Android project files
         run: |
-          # احتفظ بالإذن المخصص للميكروفون إن أردت لاحقاً
           rm -rf android
-          flutter create --platforms=android --project-name jisr .
-          echo "--- تأكيد صيغة v2 embedding ---"
+          # أنشئ مشروعاً مؤقتاً باسم الحزمة الصحيح في مجلد منفصل
+          TMP=$(mktemp -d)
+          flutter create --platforms=android --project-name jisr \
+            --org com.example "$TMP/jisr"
+          # انسخ مجلد android المولّد فقط إلى مشروعنا
+          cp -r "$TMP/jisr/android" ./android
+          rm -rf "$TMP"
+          echo "✅ نُسخ مجلد android من مشروع نظيف"
           grep -r "flutterEmbedding" android/app/src/main/AndroidManifest.xml || true
 
       # 5) حقن أذونات الميكروفون/الإنترنت/الفوترة في الـ manifest المولّد
