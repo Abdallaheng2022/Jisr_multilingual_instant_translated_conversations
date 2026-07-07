@@ -26,12 +26,12 @@ class AudioService {
     if (!await _recorder.hasPermission()) return null;
 
     final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/rec_${_uuid.v4()}.m4a';
+    final path = '${dir.path}/rec_${_uuid.v4()}.wav';
 
     await _recorder.start(
       const RecordConfig(
-        encoder: AudioEncoder.aacLc,
-        sampleRate: 24000, // يطابق معدل Chatterbox
+        encoder: AudioEncoder.wav,
+        sampleRate: 16000, // 16kHz يكفي لـ Whisper ويقلّل الحجم
         numChannels: 1,
       ),
       path: path,

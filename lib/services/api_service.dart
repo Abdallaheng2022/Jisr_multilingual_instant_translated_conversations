@@ -75,7 +75,10 @@ class ApiService {
         event = line.substring(6).trim();
       } else if (line.startsWith('data:')) {
         final d = line.substring(5).trim();
-        if (event == 'error') throw ApiException('$endpoint: خطأ من الخادم');
+        if (event == 'error') {
+          // أظهر تفاصيل الخطأ الفعلية من الخادم بدل رسالة عامة
+          throw ApiException('$endpoint: $d');
+        }
         if (event == 'complete') {
           final parsed = jsonDecode(d);
           result = parsed is List ? (parsed.isNotEmpty ? parsed[0] : null) : parsed;
