@@ -157,6 +157,12 @@ async function callGradio(endpoint, dataArray, resultTimeoutMs = 180_000) {
     body: JSON.stringify({ data: dataArray }),
     signal: AbortSignal.timeout(30_000),
   });
+  if (callRes.status === 404) {
+    throw new Error(
+      `endpoint '${endpoint}' غير موجود على الـ Space (HTTP 404). ` +
+      `تأكد أنك رفعت app.py الموحّد الذي يحتوي دوال tts/translate/stt.`
+    );
+  }
   if (!callRes.ok) throw new Error(`${endpoint} call failed: HTTP ${callRes.status}`);
   const { event_id } = await callRes.json();
   if (!event_id) throw new Error(`No event_id from ${endpoint}`);
@@ -218,20 +224,27 @@ async function uploadToGradio(buffer, filename, contentType) {
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   const body = Buffer.concat([head, buffer, tail]);
 
-  const r = await fetch(`${SPACE}/gradio_api/upload`, {
+  // مسار الرفع في Gradio هو /upload (وأيضاً /gradio_api/upload على Spaces).
+  // نجرّب /gradio_api/upload أولاً ثم /upload كبديل.
+  let r = await fetch(`${SPACE}/gradio_api/upload`, {
     method: "POST",
-    headers: {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      ...hfHeaders(),
-    },
+    headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, ...hfHeaders() },
     body,
     signal: AbortSignal.timeout(60_000),
   });
+  if (r.status === 404) {
+    r = await fetch(`${SPACE}/upload`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}`, ...hfHeaders() },
+      body,
+      signal: AbortSignal.timeout(60_000),
+    });
+  }
   if (!r.ok) throw new Error(`upload failed: HTTP ${r.status}`);
-  const paths = await r.json(); // مصفوفة مسارات على الخادم
+  const paths = await r.json(); // قائمة مسارات على الخادم
   const p = Array.isArray(paths) ? paths[0] : paths;
-  // الدالة تتوقع كائن ملف: نمرّر المسار كـ path
-  return { path: p, meta: { _type: "gradio.FileData" }, url: `${SPACE}/gradio_api/file=${p}` };
+  // شكل كائن الملف كما يتوقعه Gradio (url = null لأن الملف مرفوع بالفعل)
+  return { path: p, orig_name: filename, url: null, meta: { _type: "gradio.FileData" } };
 }
 
 async function handleSTT(req, res) {
