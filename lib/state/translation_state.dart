@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/models.dart';
@@ -67,11 +69,22 @@ class TranslationState extends ChangeNotifier {
     _refAudioPath ??= recPath;
 
     try {
+      // تحقق أن التسجيل ليس فارغاً (حجم معقول)
+      final recFile = File(recPath);
+      final recSize = await recFile.length();
+      if (recSize < 2000) {
+        error = 'التسجيل قصير جداً أو فارغ — تأكد من إذن الميكروفون وتحدّث بوضوح';
+        stage = PipelineStage.idle;
+        notifyListeners();
+        return;
+      }
+
       // 1) تفريغ صوتي (STT) عبر السيرفر
       stage = PipelineStage.transcribing;
       notifyListeners();
       final original = await _transcribe(recPath);
       if (original.trim().isEmpty) {
+        error = 'لم يُسمع كلام واضح — حاول التحدث بصوت أعلى وأقرب للميكروفون';
         stage = PipelineStage.idle;
         notifyListeners();
         return;
