@@ -11,11 +11,12 @@ import 'state/translation_state.dart';
 import 'screens/home_shell.dart';
 import 'theme/app_theme.dart';
 
-/// رابط الـ Space المتصل به التطبيق مباشرة.
-/// مضبوط افتراضياً على Space الخاص بك — غيّره إن نقلته.
+/// رابط سيرفر Modal. بعد `modal deploy` ستحصل على رابط مثل:
+///   https://USERNAME--jisr-fastapi-app.modal.run
+/// ضعه هنا بدل الرابط الافتراضي.
 const kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://abdo96-chatterbox.hf.space',
+  defaultValue: 'https://YOUR-MODAL-URL.modal.run',
 );
 
 void main() {

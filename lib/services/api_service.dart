@@ -4,110 +4,48 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
-/// عميل يتصل بـ Hugging Face Space مباشرة (Gradio API) — بدون سيرفر وسيط.
+/// عميل يتصل بسيرفر Modal مباشرة (REST/JSON بسيط).
 ///
-/// الـ Space يوفّر ثلاث دوال:
-///   /gradio_api/call/tts        → توليد صوت مستنسخ
-///   /gradio_api/call/translate  → ترجمة (MADLAD-400)
-///   /gradio_api/call/stt        → تفريغ صوتي (Whisper)
+/// نقاط النهاية:
+///   POST /health     → فحص
+///   POST /translate  → {text, from, to} → {ok, translated}
+///   POST /stt        → {audio(base64), lang} → {ok, text}
+///   POST /tts        → {text, lang, voice?(base64)} → {ok, audio(base64)}
 ///
-/// كل نداء على خطوتين: POST يعيد event_id، ثم GET يبثّ النتيجة (SSE).
+/// أبسط بكثير من Gradio — طلب JSON واحد لكل خدمة، بلا خطوتين ولا SSE.
 class ApiService {
-  ApiService({required this.baseUrl, this.hfToken});
+  ApiService({required this.baseUrl});
 
-  /// رابط الـ Space، مثل: https://abdo96-chatterbox.hf.space
+  /// رابط سيرفر Modal، مثل: https://USERNAME--jisr-fastapi-app.modal.run
   final String baseUrl;
-
-  /// توكن HF (فقط إن كان الـ Space خاصاً)
-  final String? hfToken;
 
   static const _uuid = Uuid();
   final _client = http.Client();
 
   Uri _u(String path) => Uri.parse('$baseUrl$path');
-  Map<String, String> _authHeaders() =>
-      hfToken != null ? {'Authorization': 'Bearer $hfToken'} : {};
 
-  // أسماء اللغات كما يتوقعها الـ Space (dropdown labels)
-  static const _langLabels = {
-    'ar': 'العربية (ar)',
-    'tr': 'Türkçe (tr)',
-    'en': 'English (en)',
-    'hi': 'हिन्दी (hi)',
-    'es': 'Español (es)',
-    'de': 'Deutsch (de)',
-    'fr': 'Français (fr)',
-  };
-  String _label(String code) => _langLabels[code] ?? code;
-
-  // ============================================================
-  //  مُنادٍ عام لـ Gradio (خطوتان: call ثم SSE)
-  // ============================================================
-  Future<dynamic> _callGradio(
-    String endpoint,
-    List<dynamic> data, {
-    Duration timeout = const Duration(seconds: 180),
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body, {
+    Duration timeout = const Duration(seconds: 120),
   }) async {
-    // 1) إرسال الطلب
-    final callRes = await _client
+    final res = await _client
         .post(
-          _u('/gradio_api/call/$endpoint'),
-          headers: {'Content-Type': 'application/json', ..._authHeaders()},
-          body: jsonEncode({'data': data}),
+          _u(path),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
         )
-        .timeout(const Duration(seconds: 30));
-    if (callRes.statusCode != 200) {
-      throw ApiException('$endpoint: HTTP ${callRes.statusCode}');
-    }
-    final eventId = (jsonDecode(callRes.body) as Map)['event_id'];
-    if (eventId == null) throw ApiException('$endpoint: لا يوجد event_id');
-
-    // 2) قراءة النتيجة عبر SSE
-    final resultReq = http.Request('GET', _u('/gradio_api/call/$endpoint/$eventId'));
-    resultReq.headers.addAll(_authHeaders());
-    final streamed = await _client.send(resultReq).timeout(timeout);
-    final body = await streamed.stream.bytesToString();
-
-    String event = '';
-    dynamic result;
-    for (final line in body.split('\n')) {
-      if (line.startsWith('event:')) {
-        event = line.substring(6).trim();
-      } else if (line.startsWith('data:')) {
-        final d = line.substring(5).trim();
-        if (event == 'error') {
-          // أظهر تفاصيل الخطأ الفعلية من الخادم بدل رسالة عامة
-          throw ApiException('$endpoint: $d');
-        }
-        if (event == 'complete') {
-          final parsed = jsonDecode(d);
-          result = parsed is List ? (parsed.isNotEmpty ? parsed[0] : null) : parsed;
-        }
+        .timeout(timeout);
+    if (res.statusCode != 200) {
+      // حاول قراءة رسالة الخطأ من الجسم
+      try {
+        final err = jsonDecode(res.body) as Map<String, dynamic>;
+        throw ApiException(err['error']?.toString() ?? 'HTTP ${res.statusCode}');
+      } catch (_) {
+        throw ApiException('HTTP ${res.statusCode}');
       }
     }
-    return result;
-  }
-
-  // ============================================================
-  //  رفع ملف لـ Gradio (مطلوب قبل التفريغ)
-  // ============================================================
-  Future<Map<String, dynamic>> _uploadFile(String path) async {
-    final req = http.MultipartRequest('POST', _u('/gradio_api/upload'));
-    req.headers.addAll(_authHeaders());
-    req.files.add(await http.MultipartFile.fromPath('files', path));
-    final streamed = await _client.send(req).timeout(const Duration(seconds: 60));
-    final res = await http.Response.fromStream(streamed);
-    if (res.statusCode != 200) {
-      throw ApiException('فشل رفع الصوت: HTTP ${res.statusCode}');
-    }
-    final paths = jsonDecode(res.body) as List;
-    final serverPath = paths.first as String;
-    return {
-      'path': serverPath,
-      'orig_name': path.split('/').last,
-      'url': null,
-      'meta': {'_type': 'gradio.FileData'},
-    };
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   // ============================================================
@@ -116,8 +54,9 @@ class ApiService {
   Future<HealthStatus> checkHealth() async {
     try {
       final res = await _client
-          .get(_u('/'), headers: _authHeaders())
-          .timeout(const Duration(seconds: 15));
+          .post(_u('/health'),
+              headers: {'Content-Type': 'application/json'}, body: '{}')
+          .timeout(const Duration(seconds: 30));
       return res.statusCode == 200
           ? HealthStatus.connected
           : HealthStatus.sleeping;
@@ -135,28 +74,31 @@ class ApiService {
     required String to,
   }) async {
     if (from == to) return text;
-    final result = await _callGradio(
-      'translate',
-      [text, _label(from), _label(to)],
-      timeout: const Duration(seconds: 120),
-    );
-    return (result as String?)?.trim() ?? text;
+    final data = await _post('/translate',
+        {'text': text, 'from': from, 'to': to},
+        timeout: const Duration(seconds: 60));
+    if (data['ok'] != true) {
+      throw ApiException(data['error']?.toString() ?? 'فشلت الترجمة');
+    }
+    return (data['translated'] as String?)?.trim() ?? text;
   }
 
   // ============================================================
-  //  تفريغ صوتي (رفع الملف ثم نداء stt)
+  //  تفريغ صوتي
   // ============================================================
   Future<String> transcribe({
     required String path,
     required String lang,
   }) async {
-    final fileRef = await _uploadFile(path);
-    final result = await _callGradio(
-      'stt',
-      [fileRef, _label(lang)],
-      timeout: const Duration(seconds: 120),
-    );
-    return (result as String?)?.trim() ?? '';
+    final bytes = await File(path).readAsBytes();
+    final audioB64 = base64Encode(bytes);
+    final data = await _post('/stt',
+        {'audio': audioB64, 'lang': lang},
+        timeout: const Duration(seconds: 120));
+    if (data['ok'] != true) {
+      throw ApiException(data['error']?.toString() ?? 'فشل التفريغ');
+    }
+    return (data['text'] as String?)?.trim() ?? '';
   }
 
   // ============================================================
@@ -167,35 +109,26 @@ class ApiService {
     required String lang,
     String? refAudioPath,
   }) async {
-    // صوت مرجعي اختياري: نرفعه أولاً إن وُجد
-    dynamic voiceRef;
+    String? voiceB64;
     if (refAudioPath != null && File(refAudioPath).existsSync()) {
-      voiceRef = await _uploadFile(refAudioPath);
+      voiceB64 = base64Encode(await File(refAudioPath).readAsBytes());
     }
-
-    // tts(text, language, exaggeration, cfg_weight, voice_ref)
-    final result = await _callGradio(
-      'tts',
-      [text, _label(lang), 0.5, 0.5, voiceRef],
+    final data = await _post(
+      '/tts',
+      {
+        'text': text,
+        'lang': lang,
+        if (voiceB64 != null) 'voice': voiceB64,
+      },
       timeout: const Duration(seconds: 180),
     );
-
-    // النتيجة كائن ملف {url, path, ...} — ننزّله محلياً
-    if (result == null) throw ApiException('لم يُرجع الخادم صوتاً');
-    final url = result is Map
-        ? (result['url'] as String?)
-        : (result as String?);
-    if (url == null) throw ApiException('رابط الصوت مفقود');
-
-    final audioRes = await _client
-        .get(Uri.parse(url), headers: _authHeaders())
-        .timeout(const Duration(seconds: 60));
-    if (audioRes.statusCode != 200) {
-      throw ApiException('فشل تنزيل الصوت: HTTP ${audioRes.statusCode}');
+    if (data['ok'] != true || data['audio'] == null) {
+      throw ApiException(data['error']?.toString() ?? 'فشل توليد الصوت');
     }
+    final audioBytes = base64Decode(data['audio'] as String);
     final dir = await getTemporaryDirectory();
     final outPath = '${dir.path}/tts_${_uuid.v4()}.wav';
-    await File(outPath).writeAsBytes(audioRes.bodyBytes, flush: true);
+    await File(outPath).writeAsBytes(audioBytes, flush: true);
     return outPath;
   }
 
@@ -210,7 +143,7 @@ enum HealthStatus {
 
   String get label => switch (this) {
         HealthStatus.connected => 'متصل',
-        HealthStatus.sleeping => 'الخادم نائم — افتح المساحة',
+        HealthStatus.sleeping => 'الخادم يستيقظ…',
         HealthStatus.notConfigured => 'الخادم غير مضبوط',
         HealthStatus.offline => 'لا يوجد اتصال',
       };

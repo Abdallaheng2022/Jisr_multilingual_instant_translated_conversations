@@ -77,9 +77,22 @@ class TranslateScreen extends StatelessWidget {
             ),
           ],
         ]),
-        StatusPill(
-          connected: app.health.isReady,
-          label: app.health.label,
+        GestureDetector(
+          onTap: () {
+            app.refreshHealth();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(app.health.isReady
+                    ? '✅ متصل بالخادم'
+                    : 'جارٍ فحص الاتصال… ${app.health.label}'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
+          child: StatusPill(
+            connected: app.health.isReady,
+            label: app.health.label,
+          ),
         ),
       ],
     );
