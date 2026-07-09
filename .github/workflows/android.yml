@@ -75,7 +75,7 @@ jobs:
       # 7) بناء APK
       #    العنوان مثبّت في main.dart، فلا حاجة لـ --dart-define
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=API_BASE_URL=https://deep-shopping-2022--jisr-fastapi-app.modal.run
 
       # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
