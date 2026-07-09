@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -25,16 +26,24 @@ class TranslationState extends ChangeNotifier {
   PipelineStage stage = PipelineStage.idle;
   String? error;
   String? _refAudioPath; // صوت المستخدم المرجعي (لاستنساخه)
+  bool _serverWaking = false; // يصبح true إذا طال الطلب (برود الخادم)
 
   bool get isBusy => stage != PipelineStage.idle;
+  bool get serverWaking => _serverWaking;
 
-  String get stageLabel => switch (stage) {
-        PipelineStage.idle => '',
-        PipelineStage.recording => 'جارٍ الاستماع…',
-        PipelineStage.transcribing => 'جارٍ التفريغ…',
-        PipelineStage.translating => 'جارٍ الترجمة…',
-        PipelineStage.speaking => 'جارٍ النطق بصوتك…',
-      };
+  String get stageLabel {
+    // إن طال الانتظار، أظهر رسالة إيقاظ الخادم بدل المرحلة العادية
+    if (_serverWaking && stage != PipelineStage.idle) {
+      return 'الخادم يستيقظ… قد يستغرق أول طلب دقيقة، والطلبات التالية فورية';
+    }
+    return switch (stage) {
+      PipelineStage.idle => '',
+      PipelineStage.recording => 'جارٍ الاستماع…',
+      PipelineStage.transcribing => 'جارٍ التفريغ…',
+      PipelineStage.translating => 'جارٍ الترجمة…',
+      PipelineStage.speaking => 'جارٍ النطق بصوتك…',
+    };
+  }
 
   /// بدء التسجيل (يُستدعى عند الضغط على الميكروفون)
   Future<bool> startListening() async {
@@ -67,6 +76,13 @@ class TranslationState extends ChangeNotifier {
 
     // نحفظ أول تسجيل كصوت مرجعي للاستنساخ في الأدوار التالية
     _refAudioPath ??= recPath;
+
+    // مؤقّت: إن طال الطلب >8 ثوانٍ، أظهر رسالة "الخادم يستيقظ"
+    _serverWaking = false;
+    final wakeTimer = Timer(const Duration(seconds: 8), () {
+      _serverWaking = true;
+      notifyListeners();
+    });
 
     try {
       // تحقق أن التسجيل ليس فارغاً (حجم معقول)
@@ -135,6 +151,9 @@ class TranslationState extends ChangeNotifier {
       error = e.toString();
       stage = PipelineStage.idle;
       notifyListeners();
+    } finally {
+      wakeTimer.cancel();
+      _serverWaking = false;
     }
   }
 
