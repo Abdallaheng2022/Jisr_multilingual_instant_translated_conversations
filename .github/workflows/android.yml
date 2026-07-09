@@ -72,10 +72,14 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      # 7) بناء APK
-      #    العنوان مثبّت في main.dart، فلا حاجة لـ --dart-define
+      # 7) بناء APK — المفاتيح تُحقن من GitHub Secrets (لا تظهر في الكود)
+      #    أضفها في: Settings → Secrets and variables → Actions
+      #    الأسماء المطلوبة: GROQ_KEY  و  MODAL_URL
       - name: Build APK
-        run: flutter build apk --release --dart-define=API_BASE_URL=https://deep-shopping-2022--jisr-fastapi-app.modal.run
+        run: |
+          flutter build apk --release \
+            --dart-define=API_BASE_URL="${{ secrets.MODAL_URL }}" \
+            --dart-define=GROQ_KEY="${{ secrets.GROQ_KEY }}"
 
       # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
