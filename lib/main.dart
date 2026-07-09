@@ -11,13 +11,16 @@ import 'state/translation_state.dart';
 import 'screens/home_shell.dart';
 import 'theme/app_theme.dart';
 
-/// رابط سيرفر Modal. بعد `modal deploy` ستحصل على رابط مثل:
+/// رابط سيرفر Modal (للاستنساخ الصوتي). بعد `modal deploy`:
 ///   https://USERNAME--jisr-fastapi-app.modal.run
-/// ضعه هنا بدل الرابط الافتراضي.
-const kApiBaseUrl = String.fromEnvironment(
+const kModalUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'https://deep-shopping-2022--jisr-fastapi-app.modal.run',
 );
+
+/// مفتاح Groq (للتفريغ الصوتي). مجاني من https://console.groq.com
+/// مرّره عند البناء: --dart-define=GROQ_KEY=gsk_...
+const kGroqKey = String.fromEnvironment('GROQ_KEY', defaultValue: '');
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +31,7 @@ void main() {
   ));
 
   // إنشاء الخدمات (كائن واحد يُشارك عبر التطبيق)
-  final api = ApiService(baseUrl: kApiBaseUrl);
+  final api = ApiService(modalUrl: kModalUrl, groqKey: kGroqKey);
   final audio = AudioService();
   final billing = BillingService();
 
