@@ -16,7 +16,7 @@ import 'theme/app_theme.dart';
 /// ضعه هنا بدل الرابط الافتراضي.
 const kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'https://YOUR-MODAL-URL.modal.run',
+  defaultValue: 'https://deep-shopping-2022--jisr-fastapi-app.modal.run',
 );
 
 void main() {
