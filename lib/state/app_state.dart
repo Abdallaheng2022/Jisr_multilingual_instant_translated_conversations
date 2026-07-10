@@ -52,26 +52,32 @@ class AppState extends ChangeNotifier {
   bool get canTranslateVoiceNote => subscribed || voiceNotesRemaining > 0;
 
   Future<void> _init() async {
-    _prefs = await SharedPreferences.getInstance();
-    usedMessages = _prefs.getInt(_kUsedKey) ?? 0;
-    subscribed = _prefs.getBool(_kSubKey) ?? false;
-    voiceTrialUsed = _prefs.getInt(_kVoiceTrialKey) ?? 0;
-    voiceNotesUsed = _prefs.getInt(_kVoiceNotesKey) ?? 0;
-    final t = _prefs.getString(_kSubTypeKey);
-    currentPlan = switch (t) {
-      'monthly' => PlanType.monthly,
-      'yearly' => PlanType.yearly,
-      _ => PlanType.free,
-    };
+    try {
+      _prefs = await SharedPreferences.getInstance();
+      usedMessages = _prefs.getInt(_kUsedKey) ?? 0;
+      subscribed = _prefs.getBool(_kSubKey) ?? false;
+      voiceTrialUsed = _prefs.getInt(_kVoiceTrialKey) ?? 0;
+      voiceNotesUsed = _prefs.getInt(_kVoiceNotesKey) ?? 0;
+      final t = _prefs.getString(_kSubTypeKey);
+      currentPlan = switch (t) {
+        'monthly' => PlanType.monthly,
+        'yearly' => PlanType.yearly,
+        _ => PlanType.free,
+      };
 
-    // ربط نتائج الشراء بالحالة
-    billing.onPurchaseSuccess = _handlePurchase;
-    await billing.init();
+      // ربط نتائج الشراء بالحالة — بمهلة حتى لا يعلّق إن لم يستجب Google Play
+      billing.onPurchaseSuccess = _handlePurchase;
+      await billing.init().timeout(const Duration(seconds: 5),
+          onTimeout: () {});
+    } catch (e) {
+      debugPrint('تعذّر بعض التهيئة (سيعمل التطبيق): $e');
+    }
 
+    // مهما حدث، علّم الحالة كجاهزة حتى لا يعلّق التطبيق
     ready = true;
     notifyListeners();
 
-    // فحص الاتصال بالخلفية
+    // فحص الاتصال بالخلفية (بلا تعطيل)
     refreshHealth();
   }
 

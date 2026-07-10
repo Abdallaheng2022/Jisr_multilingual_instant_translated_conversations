@@ -66,6 +66,12 @@ class AudioService {
     await _player.play(DeviceFileSource(path));
   }
 
+  /// تشغيل صوت من رابط (رسائل الغرفة من الطرف الآخر)
+  Future<void> playUrl(String url) async {
+    await _player.stop();
+    await _player.play(UrlSource(url));
+  }
+
   /// انتظار انتهاء التشغيل الحالي
   Future<void> get onComplete => _player.onPlayerComplete.first;
 

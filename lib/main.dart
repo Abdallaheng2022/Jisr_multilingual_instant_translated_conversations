@@ -9,11 +9,13 @@ import 'services/audio_service.dart';
 import 'services/billing_service.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
+import 'services/room_service.dart';
 import 'state/app_state.dart';
 import 'state/translation_state.dart';
 import 'state/auth_state.dart';
 import 'state/learning_state.dart';
 import 'state/voice_note_state.dart';
+import 'state/room_state.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
@@ -35,12 +37,12 @@ bool firebaseReady = false;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // تهيئة Firebase — بمعالجة أخطاء حتى لا يتجمد التطبيق إن لم يُعّد بعد
+  // تهيئة Firebase — بمهلة زمنية حتى لا يعلّق التطبيق إن تجمّدت التهيئة
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp().timeout(const Duration(seconds: 5));
     firebaseReady = true;
   } catch (e) {
-    // Firebase غير مُعّد — التطبيق يعمل لكن بلا تسجيل دخول/حفظ سحابي
+    // فشلت أو تجاوزت المهلة — التطبيق يكمل بدون Firebase
     firebaseReady = false;
     debugPrint('تعذّرت تهيئة Firebase (سيعمل التطبيق بدونها): $e');
   }
@@ -57,6 +59,7 @@ Future<void> main() async {
   final billing = BillingService();
   final auth = AuthService();
   final db = DatabaseService();
+  final roomService = RoomService();
 
   runApp(JisrApp(
     api: api,
@@ -64,6 +67,7 @@ Future<void> main() async {
     billing: billing,
     auth: auth,
     db: db,
+    roomService: roomService,
   ));
 }
 
@@ -73,6 +77,7 @@ class JisrApp extends StatelessWidget {
   final BillingService billing;
   final AuthService auth;
   final DatabaseService db;
+  final RoomService roomService;
 
   const JisrApp({
     super.key,
@@ -81,6 +86,7 @@ class JisrApp extends StatelessWidget {
     required this.billing,
     required this.auth,
     required this.db,
+    required this.roomService,
   });
 
   @override
@@ -96,6 +102,13 @@ class JisrApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => LearningState(db: db),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => RoomState(
+            api: api,
+            audio: audio,
+            rooms: roomService,
+          ),
         ),
         ChangeNotifierProvider(
           create: (ctx) => VoiceNoteState(

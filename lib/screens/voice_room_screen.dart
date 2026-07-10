@@ -1,407 +1,474 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../main.dart' show firebaseReady;
 import '../models/models.dart';
+import '../services/room_service.dart';
 import '../state/app_state.dart';
+import '../state/auth_state.dart';
+import '../state/room_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import 'paywall_screen.dart';
 
-/// الغرفة الصوتية اللايف — مكالمة بالتناوب مع ترجمة فورية بصوت المتحدث.
-class VoiceRoomScreen extends StatefulWidget {
+/// الغرفة الصوتية: مكالمة حقيقية بين هاتفين عبر رمز غرفة.
+class VoiceRoomScreen extends StatelessWidget {
   const VoiceRoomScreen({super.key});
 
   @override
-  State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
-}
+  Widget build(BuildContext context) {
+    final room = context.watch<RoomState>();
 
-class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
-  bool _inCall = false;
-  Duration _elapsed = Duration.zero;
-  Timer? _timer;
-  bool _muted = false;
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _toggleCall(AppState app) {
-    if (!_inCall) {
-      // المشتركون: دخول حر. غير المشتركين: تجربة 3 دقائق
-      if (!app.subscribed && app.voiceTrialRemaining <= 0) {
-        // انتهت التجربة المجانية → صفحة الاشتراك
-        _showTrialEndedDialog(app);
-        return;
-      }
-      setState(() => _inCall = true);
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() => _elapsed += const Duration(seconds: 1));
-        // خصم من التجربة المجانية (لغير المشتركين)
-        if (!app.subscribed) {
-          app.consumeVoiceTrial(1);
-          // انتهى الوقت المجاني → إنهاء المكالمة وعرض القفل
-          if (app.voiceTrialRemaining <= 0) {
-            _endCall();
-            _showTrialEndedDialog(app);
-          }
-        }
-      });
-    } else {
-      _endCall();
+    // Firebase مطلوب للغرف
+    if (!firebaseReady) {
+      return _needFirebase();
     }
-  }
 
-  void _endCall() {
-    _timer?.cancel();
-    setState(() {
-      _inCall = false;
-      _elapsed = Duration.zero;
-    });
-  }
-
-  void _showTrialEndedDialog(AppState app) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.card,
-        title: Row(children: [
-          const Icon(Icons.lock_rounded, color: AppColors.amber, size: 20),
-          const SizedBox(width: 8),
-          const Text('انتهت التجربة', style: AppText.h2),
-        ]),
-        content: Text(
-          'استمتعت بـ 3 دقائق مجانية في الغرفة الصوتية! '
-          'اشترك للاستمرار في المكالمات غير المحدودة بصوتك المستنسخ.',
-          style: AppText.bodyDim,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('لاحقاً',
-                style: TextStyle(color: AppColors.muted)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const PaywallScreen()));
-            },
-            child: const Text('اشترك الآن',
-                style: TextStyle(
-                    color: AppColors.teal, fontWeight: FontWeight.w600)),
-          ),
-        ],
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: room.inRoom ? _RoomView() : _LobbyView(),
       ),
     );
   }
 
-  String get _time {
-    final h = _elapsed.inHours.toString().padLeft(2, '0');
-    final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
-    return '$h:$m:$s';
+  Widget _needFirebase() {
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded,
+                  color: AppColors.muted, size: 40),
+              const SizedBox(height: 16),
+              const Text('الغرفة الصوتية تحتاج تسجيل الدخول',
+                  style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              Text('فعّل Firebase وسجّل الدخول لإنشاء غرف ومكالمات',
+                  style: AppText.caption, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// شاشة اللوبي: إنشاء غرفة أو الانضمام برمز
+class _LobbyView extends StatefulWidget {
+  @override
+  State<_LobbyView> createState() => _LobbyViewState();
+}
+
+class _LobbyViewState extends State<_LobbyView> {
+  final _codeCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final room = context.watch<RoomState>();
+    final auth = context.read<AuthState>();
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(children: [
-          const SizedBox(height: 8),
-          _header(),
-          const SizedBox(height: 6),
-          Text(_inCall ? _time : 'غير متصل',
-              style: const TextStyle(color: AppColors.faint, fontSize: 12)),
-          const SizedBox(height: 24),
-          _participants(app),
-          const SizedBox(height: 26),
-          if (_inCall) _liveTranscript() else _idleHint(app),
-          const Spacer(),
-          _callControls(app),
-          const SizedBox(height: 24),
-        ]),
-      ),
-    );
-  }
+    // قفل: غير المشتركين يحتاجون تجربة/اشتراك
+    final locked = !app.subscribed && app.voiceTrialRemaining <= 0;
 
-  Widget _header() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('غرفة صوتية', style: AppText.h2),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-          decoration: BoxDecoration(
-            color: (_inCall ? AppColors.danger : AppColors.faint)
-                .withOpacity(0.14),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                  color: _inCall ? AppColors.danger : AppColors.faint,
-                  shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 6),
-            Text(_inCall ? 'مباشر' : 'متوقف',
-                style: TextStyle(
-                    color: _inCall ? AppColors.danger : AppColors.faint,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500)),
-          ]),
-        ),
-      ],
-    );
-  }
-
-  Widget _participants(AppState app) {
-    return Row(children: [
-      Expanded(
-        child: _participantCard(
-          name: 'أنت',
-          emoji: '👤',
-          lang: app.sourceLang,
-          gradient: AppColors.tealGradient,
-          accent: AppColors.teal,
-          speaking: _inCall && !_muted,
-        ),
-      ),
-      const SizedBox(width: 12),
-      Expanded(
-        child: _participantCard(
-          name: 'الطرف الآخر',
-          emoji: '🧑',
-          lang: app.targetLang,
-          gradient: AppColors.amberGradient,
-          accent: AppColors.amber,
-          speaking: false,
-        ),
-      ),
-    ]);
-  }
-
-  Widget _participantCard({
-    required String name,
-    required String emoji,
-    required Language lang,
-    required Gradient gradient,
-    required Color accent,
-    required bool speaking,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-      decoration: BoxDecoration(
-        color: speaking ? accent.withOpacity(0.1) : AppColors.card,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(
-            color: speaking ? accent.withOpacity(0.4) : AppColors.border,
-            width: speaking ? 1 : 0.5),
-      ),
-      child: Column(children: [
-        if (speaking)
-          Align(
-            alignment: Alignment.topRight,
-            child: Waveform(color: accent, height: 16),
-          )
-        else
-          const SizedBox(height: 16),
         const SizedBox(height: 8),
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            gradient: gradient,
-            shape: BoxShape.circle,
-            boxShadow: speaking
-                ? [
-                    BoxShadow(
-                        color: accent.withOpacity(0.3),
-                        blurRadius: 0,
-                        spreadRadius: 6)
-                  ]
-                : null,
-          ),
-          child: Center(child: Text(emoji, style: const TextStyle(fontSize: 26))),
-        ),
-        const SizedBox(height: 12),
-        Text(name,
-            style: const TextStyle(
-                color: AppColors.text,
-                fontSize: 14,
-                fontWeight: FontWeight.w500)),
+        const Text('غرفة صوتية', style: AppText.h1),
         const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-          decoration: BoxDecoration(
-              color: accent.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12)),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(lang.flag, style: const TextStyle(fontSize: 12)),
-            const SizedBox(width: 4),
-            Text(lang.native,
-                style: TextStyle(color: accent, fontSize: 11)),
-          ]),
-        ),
-      ]),
-    );
-  }
+        Text('تحدّث مع أي شخص، كلٌّ بلغته، بصوت مُستنسخ',
+            style: AppText.bodyDim),
+        const SizedBox(height: 24),
 
-  Widget _liveTranscript() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.border, width: 0.5),
-      ),
-      child: Column(children: [
+        if (room.error != null) _errorBar(room.error!),
+
+        // إنشاء غرفة
+        _bigButton(
+          icon: Icons.add_circle_outline_rounded,
+          label: 'أنشئ غرفة جديدة',
+          gradient: AppColors.tealGradient,
+          onTap: locked
+              ? () => _goPaywall(context)
+              : () => _createRoom(context, app, auth),
+        ),
+        const SizedBox(height: 16),
+
         Row(children: [
-          const Icon(Icons.graphic_eq_rounded, color: AppColors.teal, size: 16),
-          const SizedBox(width: 8),
-          Text('جارٍ الترجمة الفورية…',
-              style: TextStyle(color: AppColors.teal, fontSize: 12)),
-        ]),
-        const SizedBox(height: 12),
-        Text('تحدّث وسيسمع الطرف الآخر كلامك مترجماً بصوتك خلال لحظات',
-            style: AppText.caption, textAlign: TextAlign.center),
-      ]),
-    );
-  }
-
-  Widget _idleHint(AppState app) {
-    final showTrial = !app.subscribed;
-    final mins = app.voiceTrialRemaining ~/ 60;
-    final secs = app.voiceTrialRemaining % 60;
-    return Column(children: [
-      Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-            color: AppColors.tealSoft(0.1),
-            borderRadius: BorderRadius.circular(AppRadius.lg)),
-        child: const Icon(Icons.headset_mic_rounded,
-            color: AppColors.teal, size: 30),
-      ),
-      const SizedBox(height: 16),
-      const Text('ابدأ مكالمة مترجمة',
-          style: TextStyle(
-              color: AppColors.text,
-              fontSize: 17,
-              fontWeight: FontWeight.w500)),
-      const SizedBox(height: 6),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 30),
-        child: Text(
-          'كل طرف يتحدث بلغته، ويسمع الآخر مترجماً بنبرة صوت المتحدث نفسه',
-          style: AppText.caption,
-          textAlign: TextAlign.center,
-        ),
-      ),
-      if (showTrial) ...[
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: app.voiceTrialRemaining > 0
-                ? AppColors.tealSoft(0.12)
-                : AppColors.amber.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(AppRadius.md),
+          const Expanded(child: Divider(color: AppColors.border)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text('أو', style: AppText.caption),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(
-              app.voiceTrialRemaining > 0
-                  ? Icons.card_giftcard_rounded
-                  : Icons.lock_rounded,
-              size: 15,
-              color: app.voiceTrialRemaining > 0
-                  ? AppColors.teal
-                  : AppColors.amber,
-            ),
-            const SizedBox(width: 7),
-            Text(
-              app.voiceTrialRemaining > 0
-                  ? 'تجربة مجانية: ${mins}:${secs.toString().padLeft(2, '0')} متبقية'
-                  : 'انتهت التجربة — اشترك للمتابعة',
-              style: TextStyle(
-                fontSize: 12,
-                color: app.voiceTrialRemaining > 0
-                    ? AppColors.teal
-                    : AppColors.amber,
-                fontWeight: FontWeight.w500,
+          const Expanded(child: Divider(color: AppColors.border)),
+        ]),
+        const SizedBox(height: 16),
+
+        // الانضمام برمز
+        const Text('انضم بغرفة موجودة', style: AppText.label),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _codeCtrl,
+              textAlign: TextAlign.center,
+              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 4),
+              decoration: InputDecoration(
+                hintText: 'رمز الغرفة',
+                hintStyle: TextStyle(
+                    color: AppColors.faint,
+                    fontSize: 15,
+                    letterSpacing: 1),
+                filled: true,
+                fillColor: AppColors.surface2,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    borderSide: BorderSide.none),
               ),
             ),
-          ]),
-        ),
-      ],
-    ]);
-  }
-
-  Widget _callControls(AppState app) {
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      if (_inCall) ...[
-        _circleBtn(
-          icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-          bg: AppColors.surface2,
-          onTap: () => setState(() => _muted = !_muted),
-        ),
-        const SizedBox(width: 18),
-      ],
-      GestureDetector(
-        onTap: () => _toggleCall(app),
-        child: Container(
-          width: 68,
-          height: 68,
-          decoration: BoxDecoration(
-            gradient:
-                _inCall ? AppColors.dangerGradient : AppColors.tealGradient,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                  color: (_inCall ? AppColors.danger : AppColors.teal)
-                      .withOpacity(0.4),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8)),
-            ],
           ),
-          child: Icon(
-              _inCall ? Icons.call_end_rounded : Icons.call_rounded,
-              color: Colors.white,
-              size: 30),
-        ),
-      ),
-      if (_inCall) ...[
-        const SizedBox(width: 18),
-        _circleBtn(
-            icon: Icons.volume_up_rounded,
-            bg: AppColors.surface2,
-            onTap: () {}),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: () => _joinRoom(context, auth),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+              decoration: BoxDecoration(
+                color: AppColors.amber,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: const Icon(Icons.login_rounded,
+                  color: AppColors.bg, size: 22),
+            ),
+          ),
+        ]),
+
+        if (!app.subscribed) ...[
+          const SizedBox(height: 20),
+          Center(
+            child: Text(
+              app.voiceTrialRemaining > 0
+                  ? 'تجربة مجانية متبقية: ${app.voiceTrialRemaining ~/ 60}:${(app.voiceTrialRemaining % 60).toString().padLeft(2, '0')}'
+                  : 'انتهت التجربة المجانية',
+              style: TextStyle(
+                  color: app.voiceTrialRemaining > 0
+                      ? AppColors.teal
+                      : AppColors.amber,
+                  fontSize: 12),
+            ),
+          ),
+        ],
       ],
-    ]);
+    );
   }
 
-  Widget _circleBtn(
-      {required IconData icon,
-      required Color bg,
-      required VoidCallback onTap}) {
+  Future<void> _createRoom(
+      BuildContext context, AppState app, AuthState auth) async {
+    await context.read<RoomState>().createRoom(
+          userId: auth.user?.uid ?? 'host_${DateTime.now().millisecondsSinceEpoch}',
+          userName: auth.user?.displayName ?? 'المضيف',
+          myLanguage: app.sourceLang.code,
+          otherLanguage: app.targetLang.code,
+        );
+  }
+
+  Future<void> _joinRoom(BuildContext context, AuthState auth) async {
+    final app = context.read<AppState>();
+    final code = _codeCtrl.text.trim().toUpperCase();
+    if (code.length < 4) {
+      context.read<RoomState>().error = 'أدخل رمز غرفة صحيح';
+      return;
+    }
+    await context.read<RoomState>().joinRoom(
+          code: code,
+          userId: auth.user?.uid ?? 'guest_${DateTime.now().millisecondsSinceEpoch}',
+          userName: auth.user?.displayName ?? 'ضيف',
+          myLanguage: app.sourceLang.code,
+        );
+  }
+
+  void _goPaywall(BuildContext context) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const PaywallScreen()));
+  }
+
+  Widget _bigButton({
+    required IconData icon,
+    required String label,
+    required Gradient gradient,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 52,
-        height: 52,
+        padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(AppRadius.md)),
+        child: Center(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, color: AppColors.bg, size: 20),
+            const SizedBox(width: 8),
+            Text(label,
+                style: const TextStyle(
+                    color: AppColors.bg,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _errorBar(String msg) => Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+            color: AppColors.danger.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(AppRadius.md)),
+        child: Row(children: [
+          const Icon(Icons.error_outline_rounded,
+              color: AppColors.danger, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Text(msg,
+                  style: const TextStyle(
+                      color: AppColors.danger, fontSize: 12))),
+        ]),
+      );
+}
+
+/// شاشة الغرفة النشطة: الرمز + المحادثة + زر التحدث
+class _RoomView extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final room = context.watch<RoomState>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        // رأس: الرمز + مغادرة
+        Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('رمز الغرفة', style: AppText.caption),
+                const SizedBox(height: 2),
+                GestureDetector(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: room.roomCode ?? ''));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('نُسخ الرمز'),
+                          duration: Duration(seconds: 1)),
+                    );
+                  },
+                  child: Row(children: [
+                    Text(room.roomCode ?? '',
+                        style: const TextStyle(
+                            color: AppColors.teal,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 3)),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.copy_rounded,
+                        color: AppColors.muted, size: 16),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => context.read<RoomState>().leave(),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: const Text('مغادرة',
+                  style: TextStyle(color: AppColors.danger, fontSize: 13)),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 12),
+
+        // حالة الطرف الآخر
+        _statusBanner(room),
+        const SizedBox(height: 12),
+
+        // المحادثة
+        Expanded(child: _conversation(context, room)),
+
+        // زر التحدث
+        _talkButton(context, room),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _statusBanner(RoomState room) {
+    final waiting = !room.otherJoined;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: waiting
+            ? AppColors.amber.withOpacity(0.1)
+            : AppColors.tealSoft(0.1),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Row(children: [
+        Icon(waiting ? Icons.hourglass_empty_rounded : Icons.check_circle_rounded,
+            size: 14, color: waiting ? AppColors.amber : AppColors.teal),
+        const SizedBox(width: 8),
+        Text(
+          waiting
+              ? 'بانتظار انضمام الطرف الآخر… شارك الرمز'
+              : 'الطرف الآخر متصل — يمكنك التحدث',
+          style: TextStyle(
+              color: waiting ? AppColors.amber : AppColors.teal,
+              fontSize: 12),
+        ),
+      ]),
+    );
+  }
+
+  Widget _conversation(BuildContext context, RoomState room) {
+    if (room.messages.isEmpty) {
+      return Center(
+        child: Text(
+          room.otherJoined
+              ? 'اضغط زر التحدث لبدء المحادثة'
+              : 'شارك الرمز مع من تريد التحدث معه',
+          style: AppText.caption,
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    return ListView.builder(
+      reverse: false,
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      itemCount: room.messages.length,
+      itemBuilder: (_, i) {
+        final msg = room.messages[i];
+        final isMine = msg.senderId == room.myId;
+        return _bubble(msg, isMine);
+      },
+    );
+  }
+
+  Widget _bubble(RoomMessage msg, bool isMine) {
+    return Align(
+      alignment: isMine ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 280),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMine ? AppColors.tealSoft(0.12) : AppColors.card,
+          borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(color: AppColors.border, width: 0.5),
         ),
-        child: Icon(icon, color: AppColors.text, size: 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(isMine ? 'أنت' : msg.senderName,
+                style: TextStyle(
+                    color: isMine ? AppColors.teal : AppColors.amber,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(msg.originalText, style: AppText.body),
+            const SizedBox(height: 4),
+            Text(msg.translatedText, style: AppText.bodyDim),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _talkButton(BuildContext context, RoomState room) {
+    final processing = room.status == RoomStatus.processing;
+    final recording = room.isRecording;
+    final canTalk = room.otherJoined && !processing;
+
+    if (processing) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(AppRadius.md)),
+        child: const Center(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppColors.teal)),
+            SizedBox(width: 10),
+            Text('جارٍ الترجمة والاستنساخ…',
+                style: TextStyle(color: AppColors.textDim, fontSize: 14)),
+          ]),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: !canTalk
+          ? null
+          : () {
+              if (recording) {
+                context.read<RoomState>().stopAndSend();
+              } else {
+                context.read<RoomState>().startRecording();
+              }
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: recording ? AppColors.danger : null,
+          gradient: recording
+              ? null
+              : (canTalk ? AppColors.tealGradient : null),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: Center(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(recording ? Icons.stop_rounded : Icons.mic_rounded,
+                color: canTalk || recording ? AppColors.bg : AppColors.muted,
+                size: 20),
+            const SizedBox(width: 8),
+            Text(
+              recording ? 'إيقاف وإرسال' : 'اضغط للتحدث',
+              style: TextStyle(
+                  color: canTalk || recording ? AppColors.bg : AppColors.muted,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600),
+            ),
+          ]),
+        ),
       ),
     );
   }
