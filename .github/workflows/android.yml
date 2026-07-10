@@ -44,6 +44,18 @@ jobs:
           echo "✅ نُسخ مجلد android من مشروع نظيف"
           grep -r "flutterEmbedding" android/app/src/main/AndroidManifest.xml || true
 
+      # 4ب) رفع compileSdk إلى 36 (file_picker وبعض الحزم تتطلبه)
+      - name: Set compileSdk to 36
+        run: |
+          GRADLE=android/app/build.gradle.kts
+          # استبدل compileSdk = flutter.compileSdkVersion برقم ثابت 36
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' "$GRADLE"
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 36/' "$GRADLE"
+          # في حال لم يوجد أيّهما، تأكد من وجود سطر compileSdk = 36
+          grep -q "compileSdk = 36" "$GRADLE" || sed -i 's/compileSdk[^=]*=.*/compileSdk = 36/' "$GRADLE"
+          echo "--- compileSdk بعد التعديل ---"
+          grep "compileSdk" "$GRADLE" || true
+
       # 5) حقن أذونات الميكروفون/الإنترنت/الفوترة في الـ manifest المولّد
       #    (flutter create ينتج manifest أساسياً بدونها)
       - name: Inject permissions
