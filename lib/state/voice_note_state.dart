@@ -98,8 +98,8 @@ class VoiceNoteState extends ChangeNotifier {
   /// بدء التسجيل المباشر داخل التطبيق
   Future<void> startRecording() async {
     if (!_checkQuota()) return;
-    final ok = await audio.startRecording();
-    if (!ok) {
+    final path = await audio.startRecording();
+    if (path == null) {
       error = 'تعذّر بدء التسجيل — تأكد من إذن الميكروفون';
       notifyListeners();
       return;
