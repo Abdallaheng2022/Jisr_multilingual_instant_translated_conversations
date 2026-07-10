@@ -9,11 +9,13 @@ class TurnBubble extends StatelessWidget {
   final TurnResult turn;
   final bool speaking;
   final VoidCallback onReplay;
+  final VoidCallback? onEdit;
 
   const TurnBubble({
     super.key,
     required this.turn,
     required this.onReplay,
+    this.onEdit,
     this.speaking = false,
   });
 
@@ -30,12 +32,25 @@ class TurnBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // النص الأصلي
-          _row(
-            icon: Icons.person_outline_rounded,
-            iconColor: AppColors.teal,
-            label: '${turn.src.native} · أنت',
-          ),
+          // النص الأصلي + زر التصحيح
+          Row(children: [
+            Expanded(
+              child: _row(
+                icon: Icons.person_outline_rounded,
+                iconColor: AppColors.teal,
+                label: '${turn.src.native} · أنت',
+              ),
+            ),
+            if (onEdit != null)
+              GestureDetector(
+                onTap: onEdit,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  child: const Icon(Icons.edit_outlined,
+                      color: AppColors.muted, size: 15),
+                ),
+              ),
+          ]),
           const SizedBox(height: 9),
           Directionality(
             textDirection:

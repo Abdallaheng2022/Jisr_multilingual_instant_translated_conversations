@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/models.dart';
+import '../models/learning.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/database_service.dart';
 import 'app_state.dart';
 
 enum PipelineStage { idle, recording, transcribing, translating, speaking }
@@ -16,11 +18,16 @@ class TranslationState extends ChangeNotifier {
     required this.api,
     required this.audio,
     required this.appState,
+    required this.db,
   });
 
   final ApiService api;
   final AudioService audio;
   final AppState appState;
+  final DatabaseService db;
+
+  /// معرّف المستخدم الحالي (يُضبط من الشاشة) — لحفظ عبارات التعلّم
+  String? currentUserId;
 
   final List<TurnResult> turns = [];
   PipelineStage stage = PipelineStage.idle;
@@ -128,6 +135,9 @@ class TranslationState extends ChangeNotifier {
       turns.insert(0, turn);
       notifyListeners();
 
+      // احفظ العبارة للتعلّم إن كانت تستحق (بلا تعطيل التدفّق)
+      _maybeSaveLearnedPhrase(original, translated);
+
       // 3) توليد الصوت بصوت المستخدم المستنسخ
       stage = PipelineStage.speaking;
       notifyListeners();
@@ -167,6 +177,54 @@ class TranslationState extends ChangeNotifier {
   Future<void> replay(TurnResult turn) async {
     if (turn.audioPath != null) {
       await audio.play(turn.audioPath!);
+    }
+  }
+
+  /// يحفظ العبارة للتعلّم إن استحقّت ووُجد مستخدم مسجّل.
+  Future<void> _maybeSaveLearnedPhrase(String source, String target) async {
+    final uid = currentUserId;
+    if (uid == null) return;
+    if (!PhraseExtractor.isWorthLearning(source, target)) return;
+    try {
+      final phrase = LearnedPhrase(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        sourceText: source,
+        targetText: target,
+        sourceLang: appState.sourceLang.code,
+        targetLang: appState.targetLang.code,
+        learnedAt: DateTime.now(),
+      );
+      await db.saveLearnedPhrase(uid, phrase);
+    } catch (e) {
+      debugPrint('فشل حفظ عبارة التعلّم: $e');
+    }
+  }
+
+  /// حفظ تصحيح المستخدم لنص مُفرّغ.
+  /// يُطبّق المعايير التلقائية ويخزّن العيّنة (مع الصوت إن وافق المستخدم).
+  Future<void> saveCorrection({
+    required String userId,
+    required String originalText,
+    required String correctedText,
+    required String language,
+    required double audioDuration,
+    String? audioPath,
+    bool contributeToTraining = false,
+  }) async {
+    if (correctedText.trim() == originalText.trim()) return; // لا تغيير
+    try {
+      await db.saveCorrection(
+        userId: userId,
+        originalText: originalText,
+        correctedText: correctedText,
+        language: language,
+        audioDuration: audioDuration,
+        audioLocalPath: audioPath,
+        contributeToTraining: contributeToTraining,
+      );
+    } catch (e) {
+      // فشل الحفظ لا يجب أن يعطّل التطبيق
+      debugPrint('فشل حفظ التصحيح: $e');
     }
   }
 

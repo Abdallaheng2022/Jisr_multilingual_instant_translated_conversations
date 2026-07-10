@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import 'translate_screen.dart';
+import 'learning_screen.dart';
 import 'voice_room_screen.dart';
+import 'voice_notes_screen.dart';
 import 'paywall_screen.dart';
 
 /// الهيكل الرئيسي مع شريط التنقل السفلي
@@ -24,7 +26,9 @@ class _HomeShellState extends State<HomeShell> {
 
     final screens = [
       const TranslateScreen(),
+      const LearningScreen(),
       const VoiceRoomScreen(),
+      const VoiceNotesScreen(),
       const PaywallScreen(),
     ];
 
@@ -43,8 +47,10 @@ class _HomeShellState extends State<HomeShell> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _navItem(0, Icons.forum_rounded, 'ترجمة'),
-                _navItem(1, Icons.headset_mic_rounded, 'غرفة صوتية'),
-                _navItem(2, Icons.workspace_premium_rounded,
+                _navItem(1, Icons.school_rounded, 'تعلّم'),
+                _navItem(2, Icons.headset_mic_rounded, 'غرفة'),
+                _navItem(3, Icons.mic_none_rounded, 'واتساب'),
+                _navItem(4, Icons.workspace_premium_rounded,
                     app.subscribed ? 'اشتراكك' : 'اشتراك'),
               ],
             ),

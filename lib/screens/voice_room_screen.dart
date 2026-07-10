@@ -30,23 +30,72 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   void _toggleCall(AppState app) {
     if (!_inCall) {
-      if (!app.subscribed) {
-        // الغرفة الصوتية ميزة مدفوعة
-        Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const PaywallScreen()));
+      // المشتركون: دخول حر. غير المشتركين: تجربة 3 دقائق
+      if (!app.subscribed && app.voiceTrialRemaining <= 0) {
+        // انتهت التجربة المجانية → صفحة الاشتراك
+        _showTrialEndedDialog(app);
         return;
       }
       setState(() => _inCall = true);
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         setState(() => _elapsed += const Duration(seconds: 1));
+        // خصم من التجربة المجانية (لغير المشتركين)
+        if (!app.subscribed) {
+          app.consumeVoiceTrial(1);
+          // انتهى الوقت المجاني → إنهاء المكالمة وعرض القفل
+          if (app.voiceTrialRemaining <= 0) {
+            _endCall();
+            _showTrialEndedDialog(app);
+          }
+        }
       });
     } else {
-      _timer?.cancel();
-      setState(() {
-        _inCall = false;
-        _elapsed = Duration.zero;
-      });
+      _endCall();
     }
+  }
+
+  void _endCall() {
+    _timer?.cancel();
+    setState(() {
+      _inCall = false;
+      _elapsed = Duration.zero;
+    });
+  }
+
+  void _showTrialEndedDialog(AppState app) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.card,
+        title: Row(children: [
+          const Icon(Icons.lock_rounded, color: AppColors.amber, size: 20),
+          const SizedBox(width: 8),
+          const Text('انتهت التجربة', style: AppText.h2),
+        ]),
+        content: Text(
+          'استمتعت بـ 3 دقائق مجانية في الغرفة الصوتية! '
+          'اشترك للاستمرار في المكالمات غير المحدودة بصوتك المستنسخ.',
+          style: AppText.bodyDim,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('لاحقاً',
+                style: TextStyle(color: AppColors.muted)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const PaywallScreen()));
+            },
+            child: const Text('اشترك الآن',
+                style: TextStyle(
+                    color: AppColors.teal, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
   }
 
   String get _time {
@@ -72,7 +121,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           const SizedBox(height: 24),
           _participants(app),
           const SizedBox(height: 26),
-          if (_inCall) _liveTranscript() else _idleHint(),
+          if (_inCall) _liveTranscript() else _idleHint(app),
           const Spacer(),
           _callControls(app),
           const SizedBox(height: 24),
@@ -227,7 +276,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     );
   }
 
-  Widget _idleHint() {
+  Widget _idleHint(AppState app) {
+    final showTrial = !app.subscribed;
+    final mins = app.voiceTrialRemaining ~/ 60;
+    final secs = app.voiceTrialRemaining % 60;
     return Column(children: [
       Container(
         width: 64,
@@ -253,6 +305,42 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           textAlign: TextAlign.center,
         ),
       ),
+      if (showTrial) ...[
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: app.voiceTrialRemaining > 0
+                ? AppColors.tealSoft(0.12)
+                : AppColors.amber.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(
+              app.voiceTrialRemaining > 0
+                  ? Icons.card_giftcard_rounded
+                  : Icons.lock_rounded,
+              size: 15,
+              color: app.voiceTrialRemaining > 0
+                  ? AppColors.teal
+                  : AppColors.amber,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              app.voiceTrialRemaining > 0
+                  ? 'تجربة مجانية: ${mins}:${secs.toString().padLeft(2, '0')} متبقية'
+                  : 'انتهت التجربة — اشترك للمتابعة',
+              style: TextStyle(
+                fontSize: 12,
+                color: app.voiceTrialRemaining > 0
+                    ? AppColors.teal
+                    : AppColors.amber,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ]),
+        ),
+      ],
     ]);
   }
 

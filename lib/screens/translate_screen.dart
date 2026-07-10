@@ -3,10 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../state/app_state.dart';
+import '../state/auth_state.dart';
 import '../state/translation_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/turn_bubble.dart';
+import '../widgets/edit_transcription_sheet.dart';
 import 'language_picker_sheet.dart';
 import 'paywall_screen.dart';
 
@@ -17,6 +19,8 @@ class TranslateScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final trans = context.watch<TranslationState>();
+    // زامن معرّف المستخدم لحفظ عبارات التعلّم
+    trans.currentUserId = context.read<AuthState>().user?.uid;
 
     return SafeArea(
       child: Padding(
@@ -136,6 +140,7 @@ class TranslateScreen extends StatelessWidget {
           turn: turn,
           speaking: trans.stage == PipelineStage.speaking && i == 0,
           onReplay: () => trans.replay(turn),
+          onEdit: () => _editTurn(context, turn),
         );
       },
     );
@@ -205,6 +210,35 @@ class TranslateScreen extends StatelessWidget {
         onPick: (l) => isSource ? app.setSource(l) : app.setTarget(l),
       ),
     );
+  }
+
+  Future<void> _editTurn(BuildContext context, TurnResult turn) async {
+    final trans = context.read<TranslationState>();
+    final auth = context.read<AuthState>();
+    final corrected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => EditTranscriptionSheet(
+        originalText: turn.original,
+        rtl: turn.src.rtl,
+      ),
+    );
+    if (corrected == null || corrected.trim().isEmpty) return;
+    if (corrected.trim() == turn.original.trim()) return;
+
+    // احفظ التصحيح (يُطبّق المعايير التلقائية)
+    final user = auth.user;
+    if (user != null) {
+      await trans.saveCorrection(
+        userId: user.uid,
+        originalText: turn.original,
+        correctedText: corrected,
+        language: turn.srcCode,
+        audioDuration: 5.0, // تقدير؛ يُحسب من الصوت فعلياً لاحقاً
+        contributeToTraining: user.contributeToTraining,
+      );
+    }
   }
 
   void _openPaywall(BuildContext context) {

@@ -28,6 +28,16 @@ dependencies:
   # In-app purchases (Google Play billing)
   in_app_purchase: ^3.2.0
 
+  # Firebase — auth, database, storage
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_storage: ^12.3.4
+  google_sign_in: ^6.2.1
+
+  # File picking (WhatsApp voice notes)
+  file_picker: ^8.1.2
+
   # Permissions (microphone)
   permission_handler: ^11.3.1
 

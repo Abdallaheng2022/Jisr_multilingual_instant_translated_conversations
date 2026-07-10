@@ -17,7 +17,11 @@ class AppState extends ChangeNotifier {
   static const _kUsedKey = 'jisr_used_messages';
   static const _kSubKey = 'jisr_subscribed';
   static const _kSubTypeKey = 'jisr_sub_type';
+  static const _kVoiceTrialKey = 'jisr_voice_trial_used'; // ثوانٍ مستخدمة
+  static const _kVoiceNotesKey = 'jisr_voice_notes_used'; // رسائل واتساب مستخدمة
   static const freeLimit = 10; // 10 رسائل مجانية
+  static const voiceTrialSeconds = 180; // 3 دقائق مجانية للغرفة الصوتية
+  static const voiceNotesLimit = 3; // 3 رسائل واتساب مجانية
 
   late SharedPreferences _prefs;
 
@@ -28,6 +32,8 @@ class AppState extends ChangeNotifier {
   // الحالة
   int usedMessages = 0;
   bool subscribed = false;
+  int voiceTrialUsed = 0; // ثوانٍ مستُهلكة من تجربة الغرفة الصوتية
+  int voiceNotesUsed = 0; // رسائل واتساب مستُهلكة
   PlanType currentPlan = PlanType.free;
   HealthStatus health = HealthStatus.offline;
   bool ready = false;
@@ -35,10 +41,22 @@ class AppState extends ChangeNotifier {
   int get freeRemaining => (freeLimit - usedMessages).clamp(0, freeLimit);
   bool get canTranslate => subscribed || freeRemaining > 0;
 
+  // الغرفة الصوتية: ثوانٍ مجانية متبقية، وهل يمكن الدخول
+  int get voiceTrialRemaining =>
+      (voiceTrialSeconds - voiceTrialUsed).clamp(0, voiceTrialSeconds);
+  bool get canUseVoiceRoom => subscribed || voiceTrialRemaining > 0;
+
+  // رسائل واتساب: عدد مجاني متبقٍ
+  int get voiceNotesRemaining =>
+      (voiceNotesLimit - voiceNotesUsed).clamp(0, voiceNotesLimit);
+  bool get canTranslateVoiceNote => subscribed || voiceNotesRemaining > 0;
+
   Future<void> _init() async {
     _prefs = await SharedPreferences.getInstance();
     usedMessages = _prefs.getInt(_kUsedKey) ?? 0;
     subscribed = _prefs.getBool(_kSubKey) ?? false;
+    voiceTrialUsed = _prefs.getInt(_kVoiceTrialKey) ?? 0;
+    voiceNotesUsed = _prefs.getInt(_kVoiceNotesKey) ?? 0;
     final t = _prefs.getString(_kSubTypeKey);
     currentPlan = switch (t) {
       'monthly' => PlanType.monthly,
@@ -87,6 +105,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// خصم ثوانٍ من تجربة الغرفة الصوتية المجانية (تُستدعى دورياً أثناء المكالمة)
+  Future<void> consumeVoiceTrial(int seconds) async {
+    if (subscribed) return; // المشتركون بلا حد
+    voiceTrialUsed += seconds;
+    await _prefs.setInt(_kVoiceTrialKey, voiceTrialUsed);
+    notifyListeners();
+  }
+
+  /// خصم رسالة واتساب من التجربة المجانية (بعد ترجمة ناجحة)
+  Future<void> consumeVoiceNote() async {
+    if (subscribed) return;
+    voiceNotesUsed++;
+    await _prefs.setInt(_kVoiceNotesKey, voiceNotesUsed);
+    notifyListeners();
+  }
+
+  /// يُستدعى عند تفعيل اشتراك — لمزامنته مع قاعدة البيانات (Firebase)
+  void Function(String plan)? onSubscribed;
+
   void _handlePurchase(String productId) {
     subscribed = true;
     currentPlan =
@@ -94,6 +131,8 @@ class AppState extends ChangeNotifier {
     _prefs.setBool(_kSubKey, true);
     _prefs.setString(
         _kSubTypeKey, currentPlan == PlanType.yearly ? 'yearly' : 'monthly');
+    // زامن مع Firebase
+    onSubscribed?.call(currentPlan == PlanType.yearly ? 'yearly' : 'monthly');
     notifyListeners();
   }
 
