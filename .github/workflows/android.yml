@@ -44,31 +44,6 @@ jobs:
           echo "✅ نُسخ مجلد android من مشروع نظيف"
           grep -r "flutterEmbedding" android/app/src/main/AndroidManifest.xml || true
 
-      # 4ب) شبكة أمان: إجبار compileSdk=36 إن احتاجته أي حزمة (لا يفشل البناء إن تعذّر)
-      - name: Force compileSdk 36 (safety net)
-        run: |
-          PROJ=android/build.gradle.kts
-          cat >> "$PROJ" <<'GRADLE'
-
-          // شبكة أمان: ترفع compileSdk لأي وحدة تتطلب أعلى من الافتراضي
-          subprojects {
-              afterEvaluate {
-                  runCatching {
-                      if (project.hasProperty("android")) {
-                          val android = project.property("android")
-                          val m = android.javaClass.methods.firstOrNull {
-                              it.name == "compileSdkVersion" &&
-                              it.parameterCount == 1 &&
-                              it.parameterTypes[0] == Int::class.javaPrimitiveType
-                          }
-                          m?.invoke(android, 36)
-                      }
-                  }
-              }
-          }
-          GRADLE
-          echo "✅ أُضيفت شبكة أمان compileSdk"
-
       # 5) حقن أذونات الميكروفون/الإنترنت/الفوترة في الـ manifest المولّد
       #    (flutter create ينتج manifest أساسياً بدونها)
       - name: Inject permissions
