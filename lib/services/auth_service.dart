@@ -5,8 +5,8 @@ import '../models/app_user.dart';
 
 /// خدمة المصادقة: تسجيل الدخول عبر Google باستخدام Firebase Auth.
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  late final FirebaseAuth _auth = FirebaseAuth.instance;
+  late final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   /// المستخدم الحالي (أو null)
   AppUser? get currentUser {

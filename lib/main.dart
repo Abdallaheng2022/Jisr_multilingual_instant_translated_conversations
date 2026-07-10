@@ -29,11 +29,21 @@ const kModalUrl = String.fromEnvironment(
 /// مرّره عند البناء: --dart-define=GROQ_KEY=gsk_...
 const kGroqKey = String.fromEnvironment('GROQ_KEY', defaultValue: '');
 
+/// هل نجحت تهيئة Firebase؟ (يُحدَّد عند البدء)
+bool firebaseReady = false;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // تهيئة Firebase (يعتمد على google-services.json / firebase_options)
-  await Firebase.initializeApp();
+  // تهيئة Firebase — بمعالجة أخطاء حتى لا يتجمد التطبيق إن لم يُعّد بعد
+  try {
+    await Firebase.initializeApp();
+    firebaseReady = true;
+  } catch (e) {
+    // Firebase غير مُعّد — التطبيق يعمل لكن بلا تسجيل دخول/حفظ سحابي
+    firebaseReady = false;
+    debugPrint('تعذّرت تهيئة Firebase (سيعمل التطبيق بدونها): $e');
+  }
 
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -134,6 +144,11 @@ class _Bootstrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // إن لم تنجح تهيئة Firebase، ادخل التطبيق مباشرة (بلا تسجيل دخول)
+    if (!firebaseReady) {
+      return const HomeShell();
+    }
+
     final auth = context.watch<AuthState>();
     final app = context.watch<AppState>();
 

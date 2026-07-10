@@ -9,8 +9,8 @@ import '../models/learning.dart';
 /// خدمة قاعدة البيانات (Firestore) + تخزين الصوت (Storage).
 /// تحفظ بيانات المستخدم وتصحيحاته، وتطبّق معايير الجودة.
 class DatabaseService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  late final FirebaseFirestore _db = FirebaseFirestore.instance;
+  late final FirebaseStorage _storage = FirebaseStorage.instance;
 
   // ── المستخدمون ──
   CollectionReference<Map<String, dynamic>> get _users =>

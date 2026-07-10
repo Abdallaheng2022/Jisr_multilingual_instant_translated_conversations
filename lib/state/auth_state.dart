@@ -21,22 +21,34 @@ class AuthState extends ChangeNotifier {
   bool get isSignedIn => user != null;
 
   void _init() {
-    // استمع لتغيّر حالة الدخول
-    auth.authStateChanges().listen((u) async {
-      if (u != null) {
-        // اجلب/أنشئ سجل المستخدم في قاعدة البيانات
-        var dbUser = await db.getUser(u.uid);
-        if (dbUser == null) {
-          dbUser = u; // أول دخول — أنشئ سجلاً
-          await db.saveUser(dbUser);
+    // استمع لتغيّر حالة الدخول — بمعالجة أخطاء إن كان Firebase غير مُعّد
+    try {
+      auth.authStateChanges().listen((u) async {
+        if (u != null) {
+          try {
+            var dbUser = await db.getUser(u.uid);
+            if (dbUser == null) {
+              dbUser = u;
+              await db.saveUser(dbUser);
+            }
+            user = dbUser;
+          } catch (e) {
+            user = u; // فشل قاعدة البيانات — استخدم بيانات المصادقة الأساسية
+          }
+        } else {
+          user = null;
         }
-        user = dbUser;
-      } else {
-        user = null;
-      }
+        ready = true;
+        notifyListeners();
+      }, onError: (e) {
+        ready = true;
+        notifyListeners();
+      });
+    } catch (e) {
+      // Firebase غير مُعّد — علّم الحالة كجاهزة (بلا مستخدم)
       ready = true;
-      notifyListeners();
-    });
+      debugPrint('AuthState: Firebase غير متاح: $e');
+    }
   }
 
   Future<void> signInWithGoogle() async {
