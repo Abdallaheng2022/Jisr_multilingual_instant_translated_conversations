@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:file_picker/file_picker.dart';
 
 import '../models/voice_note.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
 import 'app_state.dart';
 
-enum VoiceNoteStage { idle, picking, recording, transcribing, translating, cloning, done }
+enum VoiceNoteStage { idle, recording, transcribing, translating, cloning, done }
 
 /// حالة قسم رسائل واتساب الصوتية.
 /// يدعم: اختيار ملف أو التسجيل المباشر، ثم تفريغ → ترجمة → استنساخ صوتي.
@@ -35,7 +34,6 @@ class VoiceNoteState extends ChangeNotifier {
 
   String get stageLabel => switch (stage) {
         VoiceNoteStage.idle => '',
-        VoiceNoteStage.picking => 'جارٍ اختيار الملف…',
         VoiceNoteStage.recording => 'جارٍ التسجيل…',
         VoiceNoteStage.transcribing => 'جارٍ التفريغ…',
         VoiceNoteStage.translating => 'جارٍ الترجمة…',
@@ -51,48 +49,6 @@ class VoiceNoteState extends ChangeNotifier {
       return false;
     }
     return true;
-  }
-
-  /// اختيار ملف صوتي من الجهاز (رسالة واتساب)
-  Future<void> pickAndProcess({
-    required String targetLang,
-    required String sourceLang,
-  }) async {
-    if (!_checkQuota()) return;
-    error = null;
-    stage = VoiceNoteStage.picking;
-    notifyListeners();
-
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['opus', 'ogg', 'm4a', 'mp3', 'wav', 'aac'],
-      );
-      if (result == null || result.files.single.path == null) {
-        stage = VoiceNoteStage.idle;
-        notifyListeners();
-        return;
-      }
-      final path = result.files.single.path!;
-      final fileName = result.files.single.name;
-      final file = File(path);
-      if (await file.length() < 1000) {
-        error = 'الملف صغير جداً أو تالف';
-        stage = VoiceNoteStage.idle;
-        notifyListeners();
-        return;
-      }
-      await _process(
-        audioPath: path,
-        fileName: fileName,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
-      );
-    } catch (e) {
-      error = 'فشلت المعالجة: $e';
-      stage = VoiceNoteStage.idle;
-      notifyListeners();
-    }
   }
 
   /// بدء التسجيل المباشر داخل التطبيق

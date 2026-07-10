@@ -35,9 +35,6 @@ dependencies:
   firebase_storage: ^12.3.4
   google_sign_in: ^6.2.1
 
-  # File picking (WhatsApp voice notes) — 8.0.0+1 يعمل مع compileSdk 34
-  file_picker: 8.0.0+1
-
   # Permissions (microphone)
   permission_handler: ^11.3.1
 

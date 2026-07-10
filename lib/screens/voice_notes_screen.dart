@@ -371,63 +371,26 @@ class VoiceNotesScreen extends StatelessWidget {
     }
 
     // الوضع العادي: زرّان (تسجيل مباشر + اختيار ملف)
-    return Row(children: [
-      // تسجيل مباشر
-      Expanded(
-        flex: 3,
-        child: GestureDetector(
-          onTap: () => vn.startRecording(),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 15),
-            decoration: BoxDecoration(
-              gradient: AppColors.tealGradient,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: const Center(
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.mic_rounded, color: AppColors.bg, size: 18),
-                SizedBox(width: 8),
-                Text('سجّل صوتك',
-                    style: TextStyle(
-                        color: AppColors.bg,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600)),
-              ]),
-            ),
-          ),
+    return GestureDetector(
+      onTap: () => vn.startRecording(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          gradient: AppColors.tealGradient,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: const Center(
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.mic_rounded, color: AppColors.bg, size: 18),
+            SizedBox(width: 8),
+            Text('سجّل رسالة صوتية',
+                style: TextStyle(
+                    color: AppColors.bg,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600)),
+          ]),
         ),
       ),
-      const SizedBox(width: 10),
-      // اختيار ملف واتساب
-      Expanded(
-        flex: 2,
-        child: GestureDetector(
-          onTap: () => vn.pickAndProcess(
-            sourceLang: app.sourceLang.code,
-            targetLang: app.targetLang.code,
-          ),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 15),
-            decoration: BoxDecoration(
-              color: AppColors.surface2,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: Border.all(color: AppColors.border, width: 0.5),
-            ),
-            child: const Center(
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.upload_file_rounded,
-                    color: AppColors.teal, size: 17),
-                SizedBox(width: 6),
-                Text('ملف',
-                    style: TextStyle(
-                        color: AppColors.teal,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500)),
-              ]),
-            ),
-          ),
-        ),
-      ),
-    ]);
+    );
   }
 }
