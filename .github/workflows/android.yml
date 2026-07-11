@@ -74,12 +74,14 @@ jobs:
 
       # 7) بناء APK — المفاتيح تُحقن من GitHub Secrets (لا تظهر في الكود)
       #    أضفها في: Settings → Secrets and variables → Actions
-      #    الأسماء المطلوبة: GROQ_KEY  و  MODAL_URL
+      #    الأسماء المطلوبة: MODAL_URL · GROQ_KEY · SUPABASE_URL · SUPABASE_ANON_KEY
       - name: Build APK
         run: |
           flutter build apk --release \
             --dart-define=API_BASE_URL="${{ secrets.MODAL_URL }}" \
-            --dart-define=GROQ_KEY="${{ secrets.GROQ_KEY }}"
+            --dart-define=GROQ_KEY="${{ secrets.GROQ_KEY }}" \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
 
       # 8) رفع الـ APK كأثر (Artifact) لتنزيله من صفحة التشغيل
       - name: Upload APK
