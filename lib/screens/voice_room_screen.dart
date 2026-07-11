@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../main.dart' show firebaseReady;
+import '../main.dart' show backendReady;
 import '../models/models.dart';
 import '../services/room_service.dart';
 import '../state/app_state.dart';
@@ -20,9 +20,9 @@ class VoiceRoomScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final room = context.watch<RoomState>();
 
-    // Firebase مطلوب للغرف
-    if (!firebaseReady) {
-      return _needFirebase();
+    // الخادم مطلوب للغرف
+    if (!backendReady) {
+      return _needBackend();
     }
 
     return SafeArea(
@@ -33,7 +33,7 @@ class VoiceRoomScreen extends StatelessWidget {
     );
   }
 
-  Widget _needFirebase() {
+  Widget _needBackend() {
     return SafeArea(
       child: Center(
         child: Padding(
@@ -51,7 +51,7 @@ class VoiceRoomScreen extends StatelessWidget {
                       fontWeight: FontWeight.w500),
                   textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              Text('فعّل Firebase وسجّل الدخول لإنشاء غرف ومكالمات',
+              Text('سجّل الدخول لإنشاء غرف ومكالمات',
                   style: AppText.caption, textAlign: TextAlign.center),
             ],
           ),

@@ -127,7 +127,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// يُستدعى عند تفعيل اشتراك — لمزامنته مع قاعدة البيانات (Firebase)
+  /// يُستدعى عند تفعيل اشتراك — لمزامنته مع الخادم
   void Function(String plan)? onSubscribed;
 
   void _handlePurchase(String productId) {
@@ -137,7 +137,7 @@ class AppState extends ChangeNotifier {
     _prefs.setBool(_kSubKey, true);
     _prefs.setString(
         _kSubTypeKey, currentPlan == PlanType.yearly ? 'yearly' : 'monthly');
-    // زامن مع Firebase
+    // زامن مع الخادم
     onSubscribed?.call(currentPlan == PlanType.yearly ? 'yearly' : 'monthly');
     notifyListeners();
   }

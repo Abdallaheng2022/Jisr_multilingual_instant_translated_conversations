@@ -1,49 +1,66 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/app_user.dart';
 import '../models/correction.dart';
 import '../models/learning.dart';
 
-/// خدمة قاعدة البيانات (Firestore) + تخزين الصوت (Storage).
-/// تحفظ بيانات المستخدم وتصحيحاته، وتطبّق معايير الجودة.
+/// Database service backed by Supabase (Postgres + Storage).
+/// Method signatures match the previous Firebase version so the rest of
+/// the app is unchanged.
 class DatabaseService {
-  late final FirebaseFirestore _db = FirebaseFirestore.instance;
-  late final FirebaseStorage _storage = FirebaseStorage.instance;
+  SupabaseClient get _db => Supabase.instance.client;
 
-  // ── المستخدمون ──
-  CollectionReference<Map<String, dynamic>> get _users =>
-      _db.collection('users');
-
-  /// حفظ/تحديث مستخدم (يُنشأ عند أول دخول)
+  // ── Users ──
+  /// Create/update a user row (upsert on first login)
   Future<void> saveUser(AppUser user) async {
-    await _users.doc(user.uid).set(user.toJson(), SetOptions(merge: true));
+    await _db.from('users').upsert({
+      'id': user.uid,
+      'email': user.email,
+      'display_name': user.displayName,
+      'photo_url': user.photoUrl,
+      'subscribed': user.subscribed,
+      'plan': user.plan,
+      'used_messages': user.usedMessages,
+      'contribute_to_training': user.contributeToTraining,
+    });
   }
 
-  /// جلب بيانات مستخدم
   Future<AppUser?> getUser(String uid) async {
-    final doc = await _users.doc(uid).get();
-    if (!doc.exists) return null;
-    return AppUser.fromJson(doc.data()!);
+    final row =
+        await _db.from('users').select().eq('id', uid).maybeSingle();
+    if (row == null) return null;
+    return _userFromRow(row);
   }
 
-  /// تحديث حقول المستخدم (اشتراك، عدّاد، موافقة التدريب)
   Future<void> updateUser(String uid, Map<String, dynamic> fields) async {
-    await _users.doc(uid).update(fields);
+    // Map camelCase keys to snake_case columns
+    final mapped = <String, dynamic>{};
+    fields.forEach((k, v) {
+      mapped[_toSnake(k)] = v;
+    });
+    await _db.from('users').update(mapped).eq('id', uid);
   }
 
-  /// تدفّق بيانات المستخدم (لحظي)
-  Stream<AppUser?> userStream(String uid) =>
-      _users.doc(uid).snapshots().map(
-          (d) => d.exists ? AppUser.fromJson(d.data()!) : null);
+  /// Realtime stream of a user row
+  Stream<AppUser?> userStream(String uid) => _db
+      .from('users')
+      .stream(primaryKey: ['id'])
+      .eq('id', uid)
+      .map((rows) => rows.isEmpty ? null : _userFromRow(rows.first));
 
-  // ── التصحيحات ──
-  CollectionReference<Map<String, dynamic>> get _corrections =>
-      _db.collection('corrections');
+  AppUser _userFromRow(Map<String, dynamic> r) => AppUser(
+        uid: r['id'] as String,
+        email: r['email'] as String?,
+        displayName: r['display_name'] as String?,
+        photoUrl: r['photo_url'] as String?,
+        subscribed: r['subscribed'] as bool? ?? false,
+        plan: r['plan'] as String? ?? 'free',
+        usedMessages: r['used_messages'] as int? ?? 0,
+        contributeToTraining: r['contribute_to_training'] as bool? ?? false,
+      );
 
-  /// حفظ تصحيح: يرفع الصوت، يطبّق المعايير، ويخزّن العيّنة.
-  /// يُحفظ الصوت للتدريب فقط إذا وافق المستخدم (contributeToTraining).
+  // ── Corrections ──
   Future<Correction> saveCorrection({
     required String userId,
     required String originalText,
@@ -54,19 +71,23 @@ class DatabaseService {
     bool contributeToTraining = false,
     double audioClarity = 0.7,
   }) async {
-    final id = _corrections.doc().id;
+    // Apply criteria first (we need an id — Supabase generates it, so use a uuid)
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
 
-    // ارفع الصوت فقط بموافقة المستخدم (للتدريب)
+    // Upload audio only with consent (for training)
     String? audioUrl;
     if (contributeToTraining &&
         audioLocalPath != null &&
         File(audioLocalPath).existsSync()) {
-      final ref = _storage.ref('training_audio/$language/$id.wav');
-      await ref.putFile(File(audioLocalPath));
-      audioUrl = await ref.getDownloadURL();
+      try {
+        final path = 'training_audio/$language/$id.wav';
+        await _db.storage.from('training').upload(path, File(audioLocalPath));
+        audioUrl = _db.storage.from('training').getPublicUrl(path);
+      } catch (_) {
+        // storage failure shouldn't block saving the text
+      }
     }
 
-    // طبّق المعايير التلقائية
     final correction = CorrectionCriteria.evaluate(
       id: id,
       userId: userId,
@@ -78,79 +99,118 @@ class DatabaseService {
       audioClarity: audioClarity,
     );
 
-    // خزّن العيّنة (بيانات التدريب تُحفظ فقط مع الموافقة)
-    await _corrections.doc(id).set(correction.toJson());
+    await _db.from('corrections').insert({
+      'user_id': userId,
+      'audio_url': audioUrl,
+      'original_text': correction.originalText,
+      'corrected_text': correction.correctedText,
+      'language': language,
+      'audio_duration': audioDuration,
+      'edit_ratio': correction.editRatio,
+      'quality_score': correction.qualityScore,
+      'status': correction.status.name,
+    });
     return correction;
   }
 
-  /// تصحيحات المستخدم (لعرض تاريخه/تعديلاته)
   Future<List<Correction>> userCorrections(String userId,
       {int limit = 50}) async {
-    final snap = await _corrections
-        .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .get();
-    return snap.docs.map((d) => Correction.fromJson(d.data())).toList();
+    final rows = await _db
+        .from('corrections')
+        .select()
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).map((r) => _correctionFromRow(r)).toList();
   }
 
-  /// إحصاء العيّنات المقبولة للتدريب (لمعرفة متى نبدأ التدريب)
   Future<int> approvedCount(String language) async {
-    final snap = await _corrections
-        .where('language', isEqualTo: language)
-        .where('status', isEqualTo: 'approved')
-        .count()
-        .get();
-    return snap.count ?? 0;
+    final rows = await _db
+        .from('corrections')
+        .select('id')
+        .eq('language', language)
+        .eq('status', 'approved');
+    return (rows as List).length;
   }
 
-  // ── عبارات التعلّم ──
-  CollectionReference<Map<String, dynamic>> _phrases(String userId) =>
-      _users.doc(userId).collection('learned_phrases');
+  Correction _correctionFromRow(Map<String, dynamic> r) => Correction(
+        id: r['id'].toString(),
+        userId: r['user_id'] as String,
+        audioPath: r['audio_url'] as String?,
+        originalText: r['original_text'] as String,
+        correctedText: r['corrected_text'] as String,
+        language: r['language'] as String,
+        audioDuration: (r['audio_duration'] as num).toDouble(),
+        createdAt: DateTime.tryParse(r['created_at']?.toString() ?? '') ??
+            DateTime.now(),
+        editRatio: (r['edit_ratio'] as num?)?.toDouble() ?? 0,
+        qualityScore: (r['quality_score'] as num?)?.toDouble() ?? 0,
+        status: CorrectionStatus.values.byName(r['status'] as String),
+      );
 
-  /// حفظ عبارة تعلّم (بعد دورة ترجمة تستحق)
+  // ── Learned phrases ──
   Future<void> saveLearnedPhrase(String userId, LearnedPhrase phrase) async {
-    await _phrases(userId).doc(phrase.id).set(phrase.toJson());
+    await _db.from('learned_phrases').insert({
+      'user_id': userId,
+      'source_text': phrase.sourceText,
+      'target_text': phrase.targetText,
+      'source_lang': phrase.sourceLang,
+      'target_lang': phrase.targetLang,
+      'review_count': phrase.reviewCount,
+      'mastered': phrase.mastered,
+    });
   }
 
-  /// جلب عبارات المستخدم المتعلّمة
   Future<List<LearnedPhrase>> learnedPhrases(String userId,
       {int limit = 100}) async {
-    final snap = await _phrases(userId)
-        .orderBy('learnedAt', descending: true)
-        .limit(limit)
-        .get();
-    return snap.docs.map((d) => LearnedPhrase.fromJson(d.data())).toList();
+    final rows = await _db
+        .from('learned_phrases')
+        .select()
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).map((r) => _phraseFromRow(r)).toList();
   }
 
-  /// تحديث عبارة (مراجعة/إتقان)
   Future<void> updatePhrase(
       String userId, String phraseId, Map<String, dynamic> fields) async {
-    await _phrases(userId).doc(phraseId).update(fields);
+    final mapped = <String, dynamic>{};
+    fields.forEach((k, v) => mapped[_toSnake(k)] = v);
+    await _db.from('learned_phrases').update(mapped).eq('id', phraseId);
   }
 
-  /// حذف عبارة
   Future<void> deletePhrase(String userId, String phraseId) async {
-    await _phrases(userId).doc(phraseId).delete();
+    await _db.from('learned_phrases').delete().eq('id', phraseId);
   }
 
-  // ── ملخصات تعلّم اللغة (للمرحلة القادمة) ──
-  CollectionReference<Map<String, dynamic>> get _summaries =>
-      _db.collection('learning_summaries');
+  LearnedPhrase _phraseFromRow(Map<String, dynamic> r) => LearnedPhrase(
+        id: r['id'].toString(),
+        sourceText: r['source_text'] as String,
+        targetText: r['target_text'] as String,
+        sourceLang: r['source_lang'] as String,
+        targetLang: r['target_lang'] as String,
+        learnedAt: DateTime.tryParse(r['created_at']?.toString() ?? '') ??
+            DateTime.now(),
+        reviewCount: r['review_count'] as int? ?? 0,
+        mastered: r['mastered'] as bool? ?? false,
+      );
 
-  /// حفظ ملخص محادثة (كلمات/عبارات تعلّمها المستخدم)
+  // ── Learning summaries ──
   Future<void> saveLearningSummary({
     required String userId,
     required String sourceLang,
     required String targetLang,
     required List<String> phrases,
   }) async {
-    await _summaries.add({
-      'userId': userId,
-      'sourceLang': sourceLang,
-      'targetLang': targetLang,
+    await _db.from('learning_summaries').insert({
+      'user_id': userId,
+      'source_lang': sourceLang,
+      'target_lang': targetLang,
       'phrases': phrases,
-      'createdAt': DateTime.now().toIso8601String(),
     });
   }
+
+  // Helper: camelCase → snake_case
+  static String _toSnake(String s) => s.replaceAllMapped(
+      RegExp(r'[A-Z]'), (m) => '_${m.group(0)!.toLowerCase()}');
 }

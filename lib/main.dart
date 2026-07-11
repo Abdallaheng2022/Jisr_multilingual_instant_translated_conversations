@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'services/api_service.dart';
 import 'services/audio_service.dart';
@@ -31,20 +31,30 @@ const kModalUrl = String.fromEnvironment(
 /// مرّره عند البناء: --dart-define=GROQ_KEY=gsk_...
 const kGroqKey = String.fromEnvironment('GROQ_KEY', defaultValue: '');
 
-/// هل نجحت تهيئة Firebase؟ (يُحدَّد عند البدء)
-bool firebaseReady = false;
+/// Supabase credentials — from your project settings (Settings → API).
+/// Pass at build: --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+const kSupabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+const kSupabaseAnonKey =
+    String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+/// Did Supabase initialize successfully?
+bool backendReady = false;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // تهيئة Firebase — بمهلة زمنية حتى لا يعلّق التطبيق إن تجمّدت التهيئة
+  // Initialize Supabase — with a timeout so the app never hangs
   try {
-    await Firebase.initializeApp().timeout(const Duration(seconds: 5));
-    firebaseReady = true;
+    if (kSupabaseUrl.isNotEmpty && kSupabaseAnonKey.isNotEmpty) {
+      await Supabase.initialize(
+        url: kSupabaseUrl,
+        anonKey: kSupabaseAnonKey,
+      ).timeout(const Duration(seconds: 5));
+      backendReady = true;
+    }
   } catch (e) {
-    // فشلت أو تجاوزت المهلة — التطبيق يكمل بدون Firebase
-    firebaseReady = false;
-    debugPrint('تعذّرت تهيئة Firebase (سيعمل التطبيق بدونها): $e');
+    backendReady = false;
+    debugPrint('Supabase init failed (app runs without it): $e');
   }
 
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -157,15 +167,15 @@ class _Bootstrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // إن لم تنجح تهيئة Firebase، ادخل التطبيق مباشرة (بلا تسجيل دخول)
-    if (!firebaseReady) {
+    // إن لم تنجح تهيئة الخادم، ادخل التطبيق مباشرة (بلا تسجيل دخول)
+    if (!backendReady) {
       return const HomeShell();
     }
 
     final auth = context.watch<AuthState>();
     final app = context.watch<AppState>();
 
-    // اربط تفعيل الاشتراك بمزامنته مع Firebase (مرة واحدة)
+    // اربط تفعيل الاشتراك بمزامنته مع الخادم (مرة واحدة)
     app.onSubscribed ??= (plan) {
       context.read<AuthState>().setSubscribed(plan);
     };

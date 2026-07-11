@@ -21,7 +21,7 @@ class AuthState extends ChangeNotifier {
   bool get isSignedIn => user != null;
 
   void _init() {
-    // استمع لتغيّر حالة الدخول — بمعالجة أخطاء إن كان Firebase غير مُعّد
+    // استمع لتغيّر حالة الدخول — بمعالجة أخطاء إن كان الخادم غير مُعّد
     try {
       auth.authStateChanges().listen((u) async {
         if (u != null) {
@@ -45,9 +45,9 @@ class AuthState extends ChangeNotifier {
         notifyListeners();
       });
     } catch (e) {
-      // Firebase غير مُعّد — علّم الحالة كجاهزة (بلا مستخدم)
+      // الخادم غير مُعّد — علّم الحالة كجاهزة (بلا مستخدم)
       ready = true;
-      debugPrint('AuthState: Firebase غير متاح: $e');
+      debugPrint('AuthState: الخادم غير متاح: $e');
     }
   }
 
@@ -57,13 +57,68 @@ class AuthState extends ChangeNotifier {
     notifyListeners();
     try {
       await auth.signInWithGoogle();
-      // authStateChanges سيحدّث user تلقائياً
+      // authStateChanges will update user
     } catch (e) {
-      error = 'فشل تسجيل الدخول: $e';
+      error = 'فشل تسجيل الدخول عبر Google: $e';
     } finally {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// Sign up with email + password + display name
+  Future<void> signUpWithEmail({
+    required String email,
+    required String password,
+    required String displayName,
+  }) async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      await auth.signUpWithEmail(
+        email: email,
+        password: password,
+        displayName: displayName,
+      );
+    } catch (e) {
+      error = _friendlyError(e);
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Sign in with email + password
+  Future<void> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      await auth.signInWithEmail(email: email, password: password);
+    } catch (e) {
+      error = _friendlyError(e);
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  String _friendlyError(Object e) {
+    final s = e.toString().toLowerCase();
+    if (s.contains('invalid') && s.contains('credential')) {
+      return 'البريد أو كلمة المرور غير صحيحة';
+    }
+    if (s.contains('already') || s.contains('registered')) {
+      return 'هذا البريد مسجّل بالفعل — سجّل الدخول';
+    }
+    if (s.contains('password')) {
+      return 'كلمة المرور ضعيفة (6 أحرف على الأقل)';
+    }
+    return 'حدث خطأ: $e';
   }
 
   Future<void> signOut() async {

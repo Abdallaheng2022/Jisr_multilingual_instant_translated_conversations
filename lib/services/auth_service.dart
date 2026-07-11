@@ -1,65 +1,74 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/app_user.dart';
 
-/// خدمة المصادقة: تسجيل الدخول عبر Google باستخدام Firebase Auth.
+/// Auth service backed by Supabase.
+/// Supports email/password sign-up & sign-in, and Google OAuth.
 class AuthService {
-  late final FirebaseAuth _auth = FirebaseAuth.instance;
-  late final GoogleSignIn _googleSignIn = GoogleSignIn();
+  SupabaseClient get _client => Supabase.instance.client;
+  GoTrueClient get _auth => _client.auth;
 
-  /// المستخدم الحالي (أو null)
+  /// Current signed-in user (or null)
   AppUser? get currentUser {
     final u = _auth.currentUser;
     if (u == null) return null;
-    return AppUser(
-      uid: u.uid,
-      email: u.email,
-      displayName: u.displayName,
-      photoUrl: u.photoURL,
-    );
+    return _mapUser(u);
   }
 
-  /// تدفّق تغيّر حالة الدخول
+  AppUser _mapUser(User u) => AppUser(
+        uid: u.id,
+        email: u.email,
+        displayName:
+            u.userMetadata?['display_name'] as String? ?? u.email?.split('@').first,
+        photoUrl: u.userMetadata?['avatar_url'] as String?,
+      );
+
+  /// Stream of auth state changes
   Stream<AppUser?> authStateChanges() =>
-      _auth.authStateChanges().map((u) => u == null
-          ? null
-          : AppUser(
-              uid: u.uid,
-              email: u.email,
-              displayName: u.displayName,
-              photoUrl: u.photoURL,
-            ));
+      _auth.onAuthStateChange.map((event) {
+        final u = event.session?.user;
+        return u == null ? null : _mapUser(u);
+      });
 
-  /// تسجيل الدخول بـ Google
-  Future<AppUser?> signInWithGoogle() async {
-    // 1) اختيار حساب Google
-    final googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) return null; // ألغى المستخدم
-
-    // 2) الحصول على بيانات المصادقة
-    final googleAuth = await googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
+  /// Sign up with email + password + display name
+  Future<AppUser?> signUpWithEmail({
+    required String email,
+    required String password,
+    required String displayName,
+  }) async {
+    final res = await _auth.signUp(
+      email: email,
+      password: password,
+      data: {'display_name': displayName},
     );
+    final u = res.user;
+    return u == null ? null : _mapUser(u);
+  }
 
-    // 3) الدخول لـ Firebase
-    final userCred = await _auth.signInWithCredential(credential);
-    final u = userCred.user;
-    if (u == null) return null;
+  /// Sign in with email + password
+  Future<AppUser?> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final res = await _auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+    final u = res.user;
+    return u == null ? null : _mapUser(u);
+  }
 
-    return AppUser(
-      uid: u.uid,
-      email: u.email,
-      displayName: u.displayName,
-      photoUrl: u.photoURL,
+  /// Sign in with Google (OAuth)
+  Future<void> signInWithGoogle() async {
+    // Opens Google OAuth flow; result arrives via authStateChanges
+    await _auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'io.jisr.app://login-callback',
     );
   }
 
-  /// تسجيل الخروج
+  /// Sign out
   Future<void> signOut() async {
-    await _googleSignIn.signOut();
     await _auth.signOut();
   }
 }
