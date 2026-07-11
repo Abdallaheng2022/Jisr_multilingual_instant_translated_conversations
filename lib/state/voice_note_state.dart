@@ -80,6 +80,27 @@ class VoiceNoteState extends ChangeNotifier {
   }
 
   /// إيقاف التسجيل ومعالجته (تفريغ → ترجمة → استنساخ)
+  /// معالجة ملف صوتي مُشارَك من الواتساب (أو أي تطبيق)
+  Future<void> processSharedFile({
+    required String filePath,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    if (!_checkQuota()) return;
+    final file = File(filePath);
+    if (!file.existsSync() || await file.length() < 1000) {
+      error = 'الملف الصوتي غير صالح';
+      notifyListeners();
+      return;
+    }
+    await _process(
+      audioPath: filePath,
+      fileName: 'صوت من واتساب',
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    );
+  }
+
   Future<void> stopRecordingAndProcess({
     required String targetLang,
     required String sourceLang,
