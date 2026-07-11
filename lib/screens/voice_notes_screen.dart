@@ -1,8 +1,6 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import '../models/models.dart';
 import '../models/voice_note.dart';
@@ -28,43 +26,9 @@ class VoiceNotesScreen extends StatefulWidget {
 class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
   InputMethod _method = InputMethod.record;
   final _textCtrl = TextEditingController();
-  StreamSubscription? _shareSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _listenForSharedAudio();
-  }
-
-  /// يستمع للملفات الصوتية المُشارَكة من الواتساب (أو أي تطبيق)
-  void _listenForSharedAudio() {
-    // ملفات مُشارَكة أثناء عمل التطبيق
-    _shareSub = ReceiveSharingIntent.instance.getMediaStream().listen(
-      (files) => _handleSharedFiles(files),
-      onError: (_) {},
-    );
-    // ملف مُشارَك فتح التطبيق
-    ReceiveSharingIntent.instance.getInitialMedia().then((files) {
-      _handleSharedFiles(files);
-      ReceiveSharingIntent.instance.reset();
-    });
-  }
-
-  void _handleSharedFiles(List<SharedMediaFile> files) {
-    if (files.isEmpty || !mounted) return;
-    final audio = files.firstWhere(
-      (f) => f.path.isNotEmpty,
-      orElse: () => files.first,
-    );
-    // اعرض تأكيد الملكية ثم عالج
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _confirmOwnershipAndProcess(audio.path);
-    });
-  }
 
   @override
   void dispose() {
-    _shareSub?.cancel();
     _textCtrl.dispose();
     super.dispose();
   }
@@ -639,54 +603,6 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
         ),
       ),
     );
-  }
-
-  /// يعرض تعهّد الملكية قبل معالجة صوت مُشارَك من الواتساب
-  Future<void> _confirmOwnershipAndProcess(String filePath) async {
-    if (filePath.isEmpty || !mounted) return;
-    final app = context.read<AppState>();
-    final vn = context.read<VoiceNoteState>();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.card,
-        title: Row(children: [
-          const Icon(Icons.verified_user_outlined,
-              color: AppColors.teal, size: 20),
-          const SizedBox(width: 8),
-          const Flexible(child: Text('تأكيد الصوت', style: AppText.h2)),
-        ]),
-        content: Text(
-          'وصلك صوت من تطبيق آخر. أتعهّد أن هذا الصوت لي أو لديّ إذن '
-          'باستخدامه، وأتحمّل مسؤولية ذلك.',
-          style: AppText.bodyDim,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء',
-                style: TextStyle(color: AppColors.muted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('أتعهّد وأتابع',
-                style: TextStyle(
-                    color: AppColors.teal, fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      // بدّل للطريقة «صوت من واتساب» ثم عالج
-      setState(() => _method = InputMethod.whatsappShare);
-      await vn.processSharedFile(
-        filePath: filePath,
-        sourceLang: app.sourceLang.code,
-        targetLang: app.targetLang.code,
-      );
-    }
   }
 
   Future<void> _shareAudio(VoiceNoteTranslation r) async {

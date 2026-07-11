@@ -15,30 +15,102 @@ class JisrLogo extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: AppColors.tealGradient,
-        borderRadius: BorderRadius.circular(size * 0.32),
-      ),
-      child: Center(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-                width: size * 0.42,
-                height: size * 0.066,
-                decoration: BoxDecoration(
-                    color: AppColors.bg,
-                    borderRadius: BorderRadius.circular(2))),
-            Container(
-                width: size * 0.066,
-                height: size * 0.42,
-                decoration: BoxDecoration(
-                    color: AppColors.bg,
-                    borderRadius: BorderRadius.circular(2))),
-          ],
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1A2530), Color(0xFF0E1116)],
         ),
+        borderRadius: BorderRadius.circular(size * 0.28),
       ),
+      child: CustomPaint(painter: _JisrLogoPainter()),
     );
   }
+}
+
+/// يرسم لوجو جسر: قوس جسر + دعامتان + نقطة اتصال مضيئة
+class _JisrLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // تدرّج التركوازي للجسر
+    final tealShader = const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF5EC8C4), Color(0xFF3A8F8C)],
+    ).createShader(Rect.fromLTWH(0, 0, w, h));
+
+    // تدرّج الأمبر للنقطة
+    final amberShader = const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFFF2A65A), Color(0xFFE0863A)],
+    ).createShader(Rect.fromLTWH(0, 0, w, h));
+
+    // إحداثيات نسبية (نسبة لحجم اللوجو)
+    final cx = w * 0.5;
+    final archY = h * 0.62; // ارتفاع سطح الجسر
+    final dotY = h * 0.40; // ارتفاع النقطة
+
+    // 1) قوس الجسر
+    final archPaint = Paint()
+      ..shader = tealShader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.058
+      ..strokeCap = StrokeCap.round;
+    final arch = Path()
+      ..moveTo(w * 0.32, archY)
+      ..quadraticBezierTo(cx, h * 0.36, w * 0.68, archY);
+    canvas.drawPath(arch, archPaint);
+
+    // 2) سطح الجسر
+    final deckPaint = Paint()
+      ..shader = tealShader
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * 0.31, archY - h * 0.025, w * 0.38, h * 0.033),
+        Radius.circular(w * 0.02),
+      ),
+      deckPaint,
+    );
+
+    // 3) دعامتان خفيفتان
+    final pillarPaint = Paint()
+      ..shader = tealShader
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFF5EC8C4).withOpacity(0.5);
+    for (final px in [w * 0.385, w * 0.59]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(px, archY - h * 0.02, w * 0.023, h * 0.16),
+          Radius.circular(w * 0.012),
+        ),
+        pillarPaint..color = const Color(0xFF3A8F8C).withOpacity(0.55),
+      );
+    }
+
+    // 4) حلقات التوهّج حول النقطة
+    final ring2 = Paint()
+      ..color = const Color(0xFFF2A65A).withOpacity(0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.008;
+    canvas.drawCircle(Offset(cx, dotY), w * 0.135, ring2);
+
+    final ring1 = Paint()
+      ..color = const Color(0xFFF2A65A).withOpacity(0.42)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.012;
+    canvas.drawCircle(Offset(cx, dotY), w * 0.10, ring1);
+
+    // 5) نقطة الاتصال المضيئة
+    final dotPaint = Paint()..shader = amberShader;
+    canvas.drawCircle(Offset(cx, dotY), w * 0.066, dotPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// شارة حالة الاتصال (نقطة + نص)

@@ -35,9 +35,8 @@ dependencies:
   # Permissions (microphone)
   permission_handler: ^11.3.1
 
-  # Sharing (export cloned audio + receive from WhatsApp)
+  # Sharing (export cloned audio out to WhatsApp/anywhere)
   share_plus: ^10.1.2
-  receive_sharing_intent: ^1.8.1
 
   # Utilities
   path_provider: ^2.1.4
@@ -48,6 +47,17 @@ dependencies:
 
 dev_dependencies:
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
+
+# App icon generation — run: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/icon/icon_512.png"
+  adaptive_icon_background: "#0E1116"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/
