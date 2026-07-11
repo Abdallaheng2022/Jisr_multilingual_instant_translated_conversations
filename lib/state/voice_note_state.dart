@@ -73,7 +73,8 @@ class VoiceNoteState extends ChangeNotifier {
       return;
     }
     _recording = true;
-    stage = VoiceNoteStage.recording;
+    // لا نضبط stage على recording (نتركه idle) لتجنّب تعارض isBusy
+    stage = VoiceNoteStage.idle;
     error = null;
     notifyListeners();
   }
