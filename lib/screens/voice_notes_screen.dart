@@ -391,6 +391,18 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
     if (locked) {
       return _lockedButton(context);
     }
+    // أثناء التسجيل: اعرض زر الإيقاف دائماً (قبل أي فحص انشغال)
+    if (vn.isRecording) {
+      return _primaryButton(
+        icon: Icons.stop_rounded,
+        label: 'إيقاف وترجمة',
+        color: AppColors.danger,
+        onTap: () => vn.stopRecordingAndProcess(
+          sourceLang: app.sourceLang.code,
+          targetLang: app.targetLang.code,
+        ),
+      );
+    }
     if (vn.isBusy) {
       return _busyButton(vn);
     }
