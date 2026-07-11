@@ -44,6 +44,22 @@ jobs:
           echo "✅ نُسخ مجلد android من مشروع نظيف"
           grep -r "flutterEmbedding" android/app/src/main/AndroidManifest.xml || true
 
+      # 4ب) رفع compileSdk إلى 37 (receive_sharing_intent يتطلبه)
+      - name: Set compileSdk to 37
+        run: |
+          GRADLE=android/app/build.gradle.kts
+          # استبدل أي compileSdk بقيمة 37
+          if grep -q "compileSdk = flutter.compileSdkVersion" "$GRADLE"; then
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 37/' "$GRADLE"
+          elif grep -q "compileSdk =" "$GRADLE"; then
+            sed -i 's/compileSdk = [0-9]*/compileSdk = 37/' "$GRADLE"
+          else
+            # أضف السطر داخل android { }
+            sed -i 's/android {/android {\n    compileSdk = 37/' "$GRADLE"
+          fi
+          echo "--- compileSdk بعد التعديل ---"
+          grep "compileSdk" "$GRADLE" || true
+
       # 5) حقن أذونات الميكروفون/الإنترنت/الفوترة في الـ manifest المولّد
       #    (flutter create ينتج manifest أساسياً بدونها)
       - name: Inject permissions
@@ -70,7 +86,6 @@ jobs:
                   '                    <data android:mimeType="audio/*" />\n'
                   '                </intent-filter>\n'
               )
-              # أدرجه داخل <activity ...> بعد أول intent-filter (LAUNCHER)
               s = re.sub(r"(</intent-filter>\n)", r"\1" + share_filter, s, count=1)
 
           open(p, "w", encoding="utf-8").write(s)
@@ -82,6 +97,10 @@ jobs:
       # 6) جلب الحزم
       - name: Get dependencies
         run: flutter pub get
+
+      # توليد أيقونة التطبيق (بعد توليد android)
+      - name: Generate app icon
+        run: dart run flutter_launcher_icons || echo "icon generation skipped"
 
       # 7) بناء APK — المفاتيح تُحقن من GitHub Secrets (لا تظهر في الكود)
       #    أضفها في: Settings → Secrets and variables → Actions
