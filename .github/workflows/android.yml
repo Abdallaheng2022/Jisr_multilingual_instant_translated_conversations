@@ -59,11 +59,22 @@ jobs:
               '    <uses-permission android:name="com.android.vending.BILLING"/>\n'
           )
           if "RECORD_AUDIO" not in s:
-              s = s.replace("<manifest", perms and "<manifest", 1)
-              # أدرج الأذونات بعد سطر <manifest ...>
               s = re.sub(r"(<manifest[^>]*>\n)", r"\1" + perms, s, count=1)
+
+          # أضف intent-filter لاستقبال الصوت المُشارَك من الواتساب
+          if "SEND" not in s:
+              share_filter = (
+                  '\n                <intent-filter>\n'
+                  '                    <action android:name="android.intent.action.SEND" />\n'
+                  '                    <category android:name="android.intent.category.DEFAULT" />\n'
+                  '                    <data android:mimeType="audio/*" />\n'
+                  '                </intent-filter>\n'
+              )
+              # أدرجه داخل <activity ...> بعد أول intent-filter (LAUNCHER)
+              s = re.sub(r"(</intent-filter>\n)", r"\1" + share_filter, s, count=1)
+
           open(p, "w", encoding="utf-8").write(s)
-          print("✅ أُضيفت الأذونات")
+          print("✅ أُضيفت الأذونات وintent-filter للمشاركة")
           PY
           echo "--- الأذونات الحالية ---"
           grep "uses-permission" "$MANIFEST" || true
