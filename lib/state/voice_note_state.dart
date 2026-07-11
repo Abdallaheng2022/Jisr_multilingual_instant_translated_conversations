@@ -39,7 +39,9 @@ class VoiceNoteState extends ChangeNotifier {
   }
 
   bool get isBusy =>
-      stage != VoiceNoteStage.idle && stage != VoiceNoteStage.done;
+      stage != VoiceNoteStage.idle &&
+      stage != VoiceNoteStage.done &&
+      stage != VoiceNoteStage.recording;
   bool get isRecording => _recording;
 
   String get stageLabel => switch (stage) {
