@@ -88,11 +88,37 @@ jobs:
               )
               s = re.sub(r"(</intent-filter>\n)", r"\1" + share_filter, s, count=1)
 
+          # اجعل التطبيق يعيد استخدام النسخة المفتوحة عند المشاركة
+          # Flutter يولّد singleTop افتراضياً — نستبدله بـ singleTask
+          if 'launchMode="singleTop"' in s:
+              s = s.replace('launchMode="singleTop"', 'launchMode="singleTask"')
+          elif "launchMode" not in s:
+              s = re.sub(
+                  r'(<activity\s+android:name="\.MainActivity")',
+                  r'\1\n            android:launchMode="singleTask"',
+                  s, count=1)
+
+          # deep link لعودة Google OAuth للتطبيق (io.jisr.app://login-callback)
+          if "login-callback" not in s:
+              oauth_filter = (
+                  '\n                <intent-filter>\n'
+                  '                    <action android:name="android.intent.action.VIEW" />\n'
+                  '                    <category android:name="android.intent.category.DEFAULT" />\n'
+                  '                    <category android:name="android.intent.category.BROWSABLE" />\n'
+                  '                    <data android:scheme="io.jisr.app" android:host="login-callback" />\n'
+                  '                </intent-filter>\n'
+              )
+              s = re.sub(r"(</intent-filter>\n)", r"\1" + oauth_filter, s, count=1)
+
           open(p, "w", encoding="utf-8").write(s)
-          print("✅ أُضيفت الأذونات وintent-filter للمشاركة")
+          print("✅ أُضيفت الأذونات وintent-filters وlaunchMode")
           PY
           echo "--- الأذونات الحالية ---"
           grep "uses-permission" "$MANIFEST" || true
+          echo "--- launchMode (يجب أن يكون singleTask) ---"
+          grep "launchMode" "$MANIFEST" || echo "⚠️ لا launchMode!"
+          echo "--- intent-filters ---"
+          grep -c "intent-filter" "$MANIFEST" || true
 
       # 6) جلب الحزم
       - name: Get dependencies
