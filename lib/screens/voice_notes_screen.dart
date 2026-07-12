@@ -710,23 +710,22 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
     }
   }
 
-  void _pickLang(BuildContext context, bool isSource) {
+  Future<void> _pickLang(BuildContext context, bool isSource) async {
     final app = context.read<AppState>();
-    showModalBottomSheet(
+    // انتظر إغلاق الشيت ثم طبّق اللغة (يمنع تعارض البناء/الشاشة السوداء)
+    final picked = await showModalBottomSheet<Language>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => LanguagePickerSheet(
         selected: isSource ? app.vnSourceLang : app.vnTargetLang,
-        onPick: (lang) {
-          // الحوار يغلق نفسه داخلياً — لا نستدعي pop هنا (يسبب إغلاقاً مزدوجاً)
-          if (isSource) {
-            app.setVnSource(lang);
-          } else {
-            app.setVnTarget(lang);
-          }
-        },
       ),
     );
+    if (picked == null) return;
+    if (isSource) {
+      app.setVnSource(picked);
+    } else {
+      app.setVnTarget(picked);
+    }
   }
 }

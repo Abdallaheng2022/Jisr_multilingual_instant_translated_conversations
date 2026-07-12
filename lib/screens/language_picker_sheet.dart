@@ -5,10 +5,10 @@ import '../theme/app_theme.dart';
 
 class LanguagePickerSheet extends StatelessWidget {
   final Language selected;
-  final ValueChanged<Language> onPick;
+  /// اختياري — يُفضّل استخدام القيمة المُعادة من showModalBottomSheet<Language>
+  final ValueChanged<Language>? onPick;
 
-  const LanguagePickerSheet(
-      {super.key, required this.selected, required this.onPick});
+  const LanguagePickerSheet({super.key, required this.selected, this.onPick});
 
   @override
   Widget build(BuildContext context) {
@@ -41,8 +41,8 @@ class LanguagePickerSheet extends StatelessWidget {
     final active = l.code == selected.code;
     return GestureDetector(
       onTap: () {
-        onPick(l);
-        Navigator.pop(context);
+        // أغلق الشيت وأعِد اللغة — التطبيق يطبّقها بعد الإغلاق (يمنع تعارض البناء)
+        Navigator.pop(context, l);
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),

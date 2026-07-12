@@ -109,16 +109,37 @@ class AuthState extends ChangeNotifier {
 
   String _friendlyError(Object e) {
     final s = e.toString().toLowerCase();
-    if (s.contains('invalid') && s.contains('credential')) {
-      return 'البريد أو كلمة المرور غير صحيحة';
+    // رسائل Supabase الفعلية
+    if (s.contains('invalid login') ||
+        (s.contains('invalid') && s.contains('credential'))) {
+      return 'البريد أو كلمة المرور غير صحيحة — أو الحساب غير مسجّل';
     }
-    if (s.contains('already') || s.contains('registered')) {
-      return 'هذا البريد مسجّل بالفعل — سجّل الدخول';
+    if (s.contains('email not confirmed') || s.contains('not confirmed')) {
+      return 'لم تُؤكّد بريدك بعد — تحقق من رسالة التأكيد';
+    }
+    if (s.contains('already registered') ||
+        s.contains('already been registered') ||
+        s.contains('user already')) {
+      return 'هذا البريد مسجّل بالفعل — سجّل الدخول بدل إنشاء حساب';
+    }
+    if (s.contains('password') && s.contains('6')) {
+      return 'كلمة المرور قصيرة (6 أحرف على الأقل)';
     }
     if (s.contains('password')) {
       return 'كلمة المرور ضعيفة (6 أحرف على الأقل)';
     }
-    return 'حدث خطأ: $e';
+    if (s.contains('invalid email') || s.contains('unable to validate email')) {
+      return 'صيغة البريد غير صحيحة';
+    }
+    if (s.contains('network') ||
+        s.contains('socket') ||
+        s.contains('timeout')) {
+      return 'تعذّر الاتصال — تحقق من الإنترنت';
+    }
+    if (s.contains('rate limit') || s.contains('too many')) {
+      return 'محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة';
+    }
+    return 'تعذّر تسجيل الدخول. تأكد من البيانات وحاول مجدداً';
   }
 
   Future<void> signOut() async {

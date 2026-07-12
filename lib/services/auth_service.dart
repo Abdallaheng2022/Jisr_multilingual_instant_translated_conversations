@@ -55,7 +55,11 @@ class AuthService {
       password: password,
     );
     final u = res.user;
-    return u == null ? null : _mapUser(u);
+    if (u == null) {
+      // Supabase قد يُرجع نتيجة فارغة بلا استثناء — نرمي خطأً واضحاً
+      throw const AuthException('Invalid login credentials');
+    }
+    return _mapUser(u);
   }
 
   /// Sign in with Google (OAuth)

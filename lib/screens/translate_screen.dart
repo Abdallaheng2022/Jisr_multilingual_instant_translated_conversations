@@ -202,16 +202,22 @@ class TranslateScreen extends StatelessWidget {
     }
   }
 
-  void _pickLang(BuildContext context, {required bool isSource}) {
+  Future<void> _pickLang(BuildContext context,
+      {required bool isSource}) async {
     final app = context.read<AppState>();
-    showModalBottomSheet(
+    final picked = await showModalBottomSheet<Language>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => LanguagePickerSheet(
         selected: isSource ? app.sourceLang : app.targetLang,
-        onPick: (l) => isSource ? app.setSource(l) : app.setTarget(l),
       ),
     );
+    if (picked == null) return;
+    if (isSource) {
+      app.setSource(picked);
+    } else {
+      app.setTarget(picked);
+    }
   }
 
   Future<void> _editTurn(BuildContext context, TurnResult turn) async {
