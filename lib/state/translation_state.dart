@@ -10,7 +10,7 @@ import '../services/audio_service.dart';
 import '../services/database_service.dart';
 import 'app_state.dart';
 
-enum PipelineStage { idle, recording, transcribing, translating, speaking }
+enum PipelineStage { idle, recording, transcribing, reviewing, translating, speaking }
 
 /// حالة شاشة الترجمة: قائمة الأدوار + سير العملية (تسجيل ← ترجمة ← نطق).
 class TranslationState extends ChangeNotifier {
@@ -32,10 +32,19 @@ class TranslationState extends ChangeNotifier {
   final List<TurnResult> turns = [];
   PipelineStage stage = PipelineStage.idle;
   String? error;
+
+  Timer? _wakeTimer; // مؤقّت رسالة "الخادم يستيقظ"
+
+  /// مراجعة النص المُفرّغ قبل الترجمة (مهم مع اللهجات العامية)
+  bool reviewBeforeTranslate = true;
+  String? pendingText; // النص المُفرّغ بانتظار المراجعة
+  String? pendingAudioPath; // الصوت المرافق
   String? _refAudioPath; // صوت المستخدم المرجعي (لاستنساخه)
   bool _serverWaking = false; // يصبح true إذا طال الطلب (برود الخادم)
 
-  bool get isBusy => stage != PipelineStage.idle;
+  bool get isBusy =>
+      stage != PipelineStage.idle && stage != PipelineStage.reviewing;
+  bool get isReviewing => stage == PipelineStage.reviewing;
   bool get serverWaking => _serverWaking;
 
   String get stageLabel {
@@ -47,6 +56,7 @@ class TranslationState extends ChangeNotifier {
       PipelineStage.idle => '',
       PipelineStage.recording => 'جارٍ الاستماع…',
       PipelineStage.transcribing => 'جارٍ التفريغ…',
+      PipelineStage.reviewing => 'راجع النص قبل الترجمة',
       PipelineStage.translating => 'جارٍ الترجمة…',
       PipelineStage.speaking => 'جارٍ النطق بصوتك…',
     };
@@ -85,11 +95,7 @@ class TranslationState extends ChangeNotifier {
     _refAudioPath ??= recPath;
 
     // مؤقّت: إن طال الطلب >8 ثوانٍ، أظهر رسالة "الخادم يستيقظ"
-    _serverWaking = false;
-    final wakeTimer = Timer(const Duration(seconds: 8), () {
-      _serverWaking = true;
-      notifyListeners();
-    });
+    _startWakeTimer();
 
     try {
       // تحقق أن التسجيل ليس فارغاً (حجم معقول)
@@ -113,6 +119,72 @@ class TranslationState extends ChangeNotifier {
         return;
       }
 
+      // 2) توقّف للمراجعة — يرى المستخدم النص ويصححه قبل الترجمة
+      //    (مهم مع اللهجات العامية حيث قد يخطئ التفريغ)
+      if (reviewBeforeTranslate) {
+        pendingText = original;
+        pendingAudioPath = recPath;
+        stage = PipelineStage.reviewing;
+        notifyListeners();
+        return; // ننتظر confirmAndTranslate من الواجهة
+      }
+
+      await _translateAndSpeak(original, recPath);
+    } catch (e) {
+      error = 'فشلت المعالجة: $e';
+      stage = PipelineStage.idle;
+      notifyListeners();
+    }
+  }
+
+  /// يُستدعى من الواجهة بعد مراجعة/تصحيح النص المُفرّغ
+  Future<void> confirmAndTranslate(String finalText) async {
+    final audioPath = pendingAudioPath;
+    final originalTranscript = pendingText;
+    pendingText = null;
+    pendingAudioPath = null;
+
+    if (finalText.trim().isEmpty || audioPath == null) {
+      stage = PipelineStage.idle;
+      notifyListeners();
+      return;
+    }
+
+    // إن صحّح المستخدم النص، احفظه كبيانات تدريب
+    if (originalTranscript != null &&
+        originalTranscript.trim() != finalText.trim() &&
+        currentUserId != null) {
+      saveCorrection(
+        userId: currentUserId!,
+        originalText: originalTranscript,
+        correctedText: finalText,
+        language: appState.sourceLang.code,
+        audioDuration: 0,
+        audioPath: audioPath,
+      );
+    }
+
+    try {
+      await _translateAndSpeak(finalText, audioPath);
+    } catch (e) {
+      error = 'فشلت المعالجة: $e';
+      stage = PipelineStage.idle;
+      notifyListeners();
+    }
+  }
+
+  /// يلغي المراجعة (يتجاهل التسجيل)
+  void cancelReview() {
+    pendingText = null;
+    pendingAudioPath = null;
+    stage = PipelineStage.idle;
+    notifyListeners();
+  }
+
+  /// الترجمة + النطق (بعد تأكيد النص)
+  Future<void> _translateAndSpeak(String original, String recPath) async {
+    _startWakeTimer(); // قد يطول الاستنساخ — أظهر رسالة الانتظار إن لزم
+    try {
       // 2) ترجمة
       stage = PipelineStage.translating;
       notifyListeners();
@@ -162,13 +234,27 @@ class TranslationState extends ChangeNotifier {
       stage = PipelineStage.idle;
       notifyListeners();
     } finally {
-      wakeTimer.cancel();
-      _serverWaking = false;
+      _stopWakeTimer();
     }
   }
 
   /// تفريغ صوتي — يستدعي مسار STT في السيرفر الوسيط.
   /// (السيرفر يمرّره لخدمة STT مثل Whisper؛ هنا نرسل الملف كـ multipart.)
+  void _startWakeTimer() {
+    _wakeTimer?.cancel();
+    _serverWaking = false;
+    _wakeTimer = Timer(const Duration(seconds: 8), () {
+      _serverWaking = true;
+      notifyListeners();
+    });
+  }
+
+  void _stopWakeTimer() {
+    _wakeTimer?.cancel();
+    _wakeTimer = null;
+    _serverWaking = false;
+  }
+
   Future<String> _transcribe(String path) async {
     // نفوّض التفريغ لطبقة API. نضيفها هنا للحفاظ على المسؤولية الواحدة.
     return api.transcribe(path: path, lang: appState.sourceLang.code);

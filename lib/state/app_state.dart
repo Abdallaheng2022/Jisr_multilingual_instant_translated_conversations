@@ -26,8 +26,12 @@ class AppState extends ChangeNotifier {
   late SharedPreferences _prefs;
 
   // اللغات المختارة
-  Language sourceLang = kLanguages[0]; // العربية
-  Language targetLang = kLanguages[2]; // التركية
+  Language sourceLang = kLanguages[0]; // العربية (قسم الترجمة)
+  Language targetLang = kLanguages[2]; // التركية (قسم الترجمة)
+
+  // لغات مستقلة لقسم الواتساب (منفصلة عن قسم الترجمة)
+  Language vnSourceLang = kLanguages[0];
+  Language vnTargetLang = kLanguages[2];
 
   // الحالة
   int usedMessages = 0;
@@ -100,6 +104,17 @@ class AppState extends ChangeNotifier {
 
   void setTarget(Language l) {
     targetLang = l;
+    notifyListeners();
+  }
+
+  // إعداد لغات قسم الواتساب (مستقلة)
+  void setVnSource(Language l) {
+    vnSourceLang = l;
+    notifyListeners();
+  }
+
+  void setVnTarget(Language l) {
+    vnTargetLang = l;
     notifyListeners();
   }
 

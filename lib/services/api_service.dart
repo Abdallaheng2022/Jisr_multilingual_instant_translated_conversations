@@ -80,6 +80,7 @@ class ApiService {
   Future<String> transcribe({
     required String path,
     required String lang,
+    String? prompt, // تلميح يوجّه النموذج (مفيد مع اللهجات)
   }) async {
     if (groqKey.isEmpty) {
       throw ApiException(
@@ -90,18 +91,43 @@ class ApiService {
       Uri.parse('https://api.groq.com/openai/v1/audio/transcriptions'),
     );
     req.headers['Authorization'] = 'Bearer $groqKey';
-    req.fields['model'] = 'whisper-large-v3-turbo';
+    // النموذج الكامل — أدق مع اللهجات العامية (turbo أسرع لكن أقل دقة)
+    req.fields['model'] = 'whisper-large-v3';
     if (lang.isNotEmpty) req.fields['language'] = lang;
+
+    // تلميح للنموذج: يحسّن فهم اللهجات العامية
+    final hint = prompt ?? _dialectHint(lang);
+    if (hint.isNotEmpty) req.fields['prompt'] = hint;
+
+    // temperature=0 → أكثر التزاماً بالصوت، أقل "تخمين"
+    req.fields['temperature'] = '0';
+
     req.files.add(await http.MultipartFile.fromPath('file', path));
 
     final streamed =
-        await _client.send(req).timeout(const Duration(seconds: 60));
+        await _client.send(req).timeout(const Duration(seconds: 90));
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) {
       throw ApiException('فشل التفريغ (HTTP ${res.statusCode})');
     }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return (data['text'] as String?)?.trim() ?? '';
+  }
+
+  /// تلميح يخبر النموذج أن الكلام قد يكون بلهجة عامية
+  String _dialectHint(String lang) {
+    switch (lang) {
+      case 'ar':
+        return 'كلام بالعامية العربية، لهجة يومية دارجة.';
+      case 'tr':
+        return 'Günlük konuşma dili.';
+      case 'es':
+        return 'Habla coloquial cotidiana.';
+      case 'hi':
+        return 'रोज़मर्रा की बोलचाल।';
+      default:
+        return '';
+    }
   }
 
   // ============================================================

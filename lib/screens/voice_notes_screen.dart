@@ -218,13 +218,13 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
   /// Source → target language selector
   Widget _languageRow(BuildContext context, AppState app) {
     return Row(children: [
-      Expanded(child: _langChip(context, app.sourceLang, true)),
+      Expanded(child: _langChip(context, app.vnSourceLang, true)),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Icon(Icons.arrow_back_rounded,
             color: AppColors.muted, size: 18),
       ),
-      Expanded(child: _langChip(context, app.targetLang, false)),
+      Expanded(child: _langChip(context, app.vnTargetLang, false)),
     ]);
   }
 
@@ -460,8 +460,8 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
         label: 'إيقاف وترجمة',
         color: AppColors.danger,
         onTap: () => vn.stopRecordingAndProcess(
-          sourceLang: app.sourceLang.code,
-          targetLang: app.targetLang.code,
+          sourceLang: app.vnSourceLang.code,
+          targetLang: app.vnTargetLang.code,
         ),
       );
     }
@@ -505,8 +505,8 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
         onTap: () {
           vn.processText(
             text: _textCtrl.text,
-            sourceLang: app.sourceLang.code,
-            targetLang: app.targetLang.code,
+            sourceLang: app.vnSourceLang.code,
+            targetLang: app.vnTargetLang.code,
           );
         },
       ),
@@ -549,8 +549,8 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
         label: 'إيقاف وترجمة',
         color: AppColors.danger,
         onTap: () => vn.stopRecordingAndProcess(
-          sourceLang: app.sourceLang.code,
-          targetLang: app.targetLang.code,
+          sourceLang: app.vnSourceLang.code,
+          targetLang: app.vnTargetLang.code,
         ),
       );
     }
@@ -679,8 +679,8 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
       setState(() => _method = InputMethod.whatsappShare);
       await vn.processSharedFile(
         filePath: filePath,
-        sourceLang: app.sourceLang.code,
-        targetLang: app.targetLang.code,
+        sourceLang: app.vnSourceLang.code,
+        targetLang: app.vnTargetLang.code,
       );
     }
   }
@@ -717,14 +717,14 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => LanguagePickerSheet(
-        selected: isSource ? app.sourceLang : app.targetLang,
+        selected: isSource ? app.vnSourceLang : app.vnTargetLang,
         onPick: (lang) {
+          // الحوار يغلق نفسه داخلياً — لا نستدعي pop هنا (يسبب إغلاقاً مزدوجاً)
           if (isSource) {
-            app.setSource(lang);
+            app.setVnSource(lang);
           } else {
-            app.setTarget(lang);
+            app.setVnTarget(lang);
           }
-          Navigator.pop(context);
         },
       ),
     );
