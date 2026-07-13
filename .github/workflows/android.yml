@@ -37,7 +37,7 @@ jobs:
           # أنشئ مشروعاً مؤقتاً باسم الحزمة الصحيح في مجلد منفصل
           TMP=$(mktemp -d)
           flutter create --platforms=android --project-name jisr \
-            --org com.example "$TMP/jisr"
+            --org com.jisr "$TMP/jisr"
           # انسخ مجلد android المولّد فقط إلى مشروعنا
           cp -r "$TMP/jisr/android" ./android
           rm -rf "$TMP"
@@ -105,7 +105,7 @@ jobs:
                   '                    <action android:name="android.intent.action.VIEW" />\n'
                   '                    <category android:name="android.intent.category.DEFAULT" />\n'
                   '                    <category android:name="android.intent.category.BROWSABLE" />\n'
-                  '                    <data android:scheme="io.jisr.app" android:host="login-callback" />\n'
+                  '                    <data android:scheme="com.jisr.app" android:host="login-callback" />\n'
                   '                </intent-filter>\n'
               )
               s = re.sub(r"(</intent-filter>\n)", r"\1" + oauth_filter, s, count=1)
