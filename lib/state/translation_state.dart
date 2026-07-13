@@ -28,12 +28,19 @@ class TranslationState extends ChangeNotifier {
 
   /// معرّف المستخدم الحالي (يُضبط من الشاشة) — لحفظ عبارات التعلّم
   String? currentUserId;
+  bool userConsent = false; // إذن المستخدم لاستخدام بياناته (تدريب/تحسين)
 
   final List<TurnResult> turns = [];
   PipelineStage stage = PipelineStage.idle;
   String? error;
 
   Timer? _wakeTimer; // مؤقّت رسالة "الخادم يستيقظ"
+  Timer? _maxRecTimer; // يوقف التسجيل تلقائياً عند الحد الأقصى
+
+  /// حدود تحمي التكلفة (GPU يُحاسَب بالثانية)
+  static const int maxRecordingSeconds = 60; // أقصى مدة تسجيل
+  static const int maxCloneChars = 500; // أقصى نص يُستنسخ
+  String? _rawTranscript; // النص الأصلي قبل تصحيح المستخدم (للحفظ)
 
   /// مراجعة النص المُفرّغ قبل الترجمة (مهم مع اللهجات العامية)
   bool reviewBeforeTranslate = true;
@@ -66,7 +73,8 @@ class TranslationState extends ChangeNotifier {
   Future<bool> startListening() async {
     error = null;
     if (!appState.canTranslate) {
-      error = 'انتهت رسائلك المجانية — اشترك للمتابعة';
+      error = 'انتهت ترجماتك المجانية اليوم — تتجدد بعد '
+          '${appState.hoursUntilReset} ساعة، أو اشترك للاستخدام بلا حدود';
       notifyListeners();
       return false;
     }
@@ -78,6 +86,15 @@ class TranslationState extends ChangeNotifier {
     }
     stage = PipelineStage.recording;
     notifyListeners();
+
+    // إيقاف تلقائي عند الحد الأقصى (يحمي تكلفة GPU)
+    _maxRecTimer?.cancel();
+    _maxRecTimer = Timer(const Duration(seconds: maxRecordingSeconds), () {
+      if (stage == PipelineStage.recording) {
+        error = 'وصلت الحد الأقصى ($maxRecordingSeconds ثانية) — جارٍ المعالجة';
+        stopAndTranslate();
+      }
+    });
     return true;
   }
 
@@ -122,6 +139,7 @@ class TranslationState extends ChangeNotifier {
       // 2) توقّف للمراجعة — يرى المستخدم النص ويصححه قبل الترجمة
       //    (مهم مع اللهجات العامية حيث قد يخطئ التفريغ)
       if (reviewBeforeTranslate) {
+        _rawTranscript = original; // احفظ الأصل قبل أي تصحيح
         pendingText = original;
         pendingAudioPath = recPath;
         stage = PipelineStage.reviewing;
@@ -213,8 +231,12 @@ class TranslationState extends ChangeNotifier {
       // 3) توليد الصوت بصوت المستخدم المستنسخ
       stage = PipelineStage.speaking;
       notifyListeners();
+      // اقتطاع النص الطويل يحمي تكلفة GPU (يُحاسَب بالثانية)
+      final clipped = translated.length > maxCloneChars
+          ? translated.substring(0, maxCloneChars)
+          : translated;
       final audioPath = await api.synthesize(
-        text: translated,
+        text: clipped,
         lang: appState.targetLang.code,
         refAudioPath: _refAudioPath,
       );
@@ -228,6 +250,26 @@ class TranslationState extends ChangeNotifier {
       stage = PipelineStage.idle;
       notifyListeners();
 
+      // احفظ الجلسة في قاعدة البيانات (نص + ترجمة + صوت)
+      if (currentUserId != null) {
+        db.saveRecording(
+          userId: currentUserId!,
+          consent: userConsent,
+          originalText: _rawTranscript ?? original,
+          correctedText: _rawTranscript != null && _rawTranscript != original
+              ? original
+              : null,
+          wasCorrected: _rawTranscript != null && _rawTranscript != original,
+          translatedText: translated,
+          sourceLang: appState.sourceLang.code,
+          targetLang: appState.targetLang.code,
+          audioLocalPath: recPath,
+          clonedLocalPath: audioPath,
+          section: 'translate',
+        );
+      }
+      _rawTranscript = null;
+
       await audio.play(audioPath);
     } catch (e) {
       error = e.toString();
@@ -240,6 +282,70 @@ class TranslationState extends ChangeNotifier {
 
   /// تفريغ صوتي — يستدعي مسار STT في السيرفر الوسيط.
   /// (السيرفر يمرّره لخدمة STT مثل Whisper؛ هنا نرسل الملف كـ multipart.)
+  /// إعادة ترجمة واستنساخ دور موجود بعد تصحيح نصه
+  /// (يُستدعى عندما يكتشف المستخدم خطأً في النتيجة ويصححه)
+  Future<void> retranslateTurn(TurnResult turn, String correctedText) async {
+    if (correctedText.trim().isEmpty) return;
+    error = null;
+    _startWakeTimer();
+
+    try {
+      // 1) ترجمة النص المصحّح
+      stage = PipelineStage.translating;
+      notifyListeners();
+      final translated = await api.translate(
+        text: correctedText,
+        from: turn.srcCode,
+        to: turn.tgtCode,
+      );
+
+      // 2) استنساخ الترجمة الجديدة بنبرة المستخدم
+      stage = PipelineStage.speaking;
+      notifyListeners();
+      final audioPath = await api.synthesize(
+        text: translated,
+        lang: turn.tgtCode,
+        refAudioPath: _refAudioPath,
+      );
+
+      // 3) حدّث الدور بالنص والترجمة والصوت الجديد
+      final idx = turns.indexWhere((t) => t.id == turn.id);
+      if (idx != -1) {
+        turns[idx] = turns[idx].copyWith(
+          original: correctedText,
+          translated: translated,
+          audioPath: audioPath,
+        );
+      }
+
+      // 4) احفظ الجلسة المصححة
+      if (currentUserId != null) {
+        db.saveRecording(
+          userId: currentUserId!,
+          consent: userConsent,
+          originalText: turn.original, // النص الخاطئ الأصلي
+          correctedText: correctedText,
+          wasCorrected: true,
+          translatedText: translated,
+          sourceLang: turn.srcCode,
+          targetLang: turn.tgtCode,
+          clonedLocalPath: audioPath,
+          section: 'translate',
+        );
+      }
+
+      stage = PipelineStage.idle;
+      notifyListeners();
+      await audio.play(audioPath);
+    } catch (e) {
+      error = 'تعذّرت إعادة الترجمة: $e';
+      stage = PipelineStage.idle;
+      notifyListeners();
+    } finally {
+      _stopWakeTimer();
+    }
+  }
+
   void _startWakeTimer() {
     _wakeTimer?.cancel();
     _serverWaking = false;
@@ -255,10 +361,43 @@ class TranslationState extends ChangeNotifier {
     _serverWaking = false;
   }
 
+  /// ذاكرة التصحيحات (تُحمّل مرة، تُستخدم كسياق يوجّه النموذج)
+  final Map<String, List<String>> _correctionMemory = {};
+
   Future<String> _transcribe(String path) async {
-    // نفوّض التفريغ لطبقة API. نضيفها هنا للحفاظ على المسؤولية الواحدة.
-    return api.transcribe(path: path, lang: appState.sourceLang.code);
+    final lang = appState.sourceLang.code;
+
+    // المسار الثاني: "معرفة" فورية من تصحيحات المستخدم السابقة
+    // تُستخدم فقط إن وافق المستخدم — بلا إذن لا نقرأ ولا نستخدم شيئاً
+    String? personalPrompt;
+    if (userConsent && currentUserId != null) {
+      final memory = await _loadCorrectionMemory(lang);
+      if (memory.isNotEmpty) {
+        // نمرّر عبارات المستخدم المصححة كسياق — يميل النموذج لاستخدام مفرداته
+        personalPrompt = memory.take(8).join(' ');
+      }
+    }
+
+    return api.transcribe(
+      path: path,
+      lang: lang,
+      prompt: personalPrompt, // إن كان null، تُستخدم تلميحة اللهجة الافتراضية
+    );
   }
+
+  /// يحمّل تصحيحات المستخدم للغة (مرة واحدة، ثم يُخزّنها)
+  Future<List<String>> _loadCorrectionMemory(String lang) async {
+    if (_correctionMemory.containsKey(lang)) return _correctionMemory[lang]!;
+    final texts = await db.recentCorrectedTexts(
+      currentUserId!,
+      language: lang,
+    );
+    _correctionMemory[lang] = texts;
+    return texts;
+  }
+
+  /// يُفرِغ الذاكرة (بعد تصحيح جديد، لتُحمّل محدّثة)
+  void clearCorrectionMemory() => _correctionMemory.clear();
 
   Future<void> replay(TurnResult turn) async {
     if (turn.audioPath != null) {

@@ -371,8 +371,13 @@ class _MicButtonState extends State<MicButton>
 class FreeCounter extends StatelessWidget {
   final int remaining;
   final VoidCallback onUpgrade;
-  const FreeCounter(
-      {super.key, required this.remaining, required this.onUpgrade});
+  final int hoursUntilReset; // ساعات حتى تجديد الرصيد اليومي
+  const FreeCounter({
+    super.key,
+    required this.remaining,
+    required this.onUpgrade,
+    this.hoursUntilReset = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -390,7 +395,9 @@ class FreeCounter extends StatelessWidget {
               color: out ? AppColors.danger : AppColors.amber, size: 15),
           const SizedBox(width: 6),
           Text(
-            out ? 'انتهت الرسائل المجانية — اشترك الآن' : '$remaining رسائل مجانية متبقية',
+            out
+                ? 'انتهت ترجمات اليوم — تتجدد بعد $hoursUntilReset ساعة'
+                : '$remaining ترجمات مجانية اليوم',
             style: TextStyle(
                 color: out ? AppColors.danger : AppColors.amber,
                 fontSize: 12,

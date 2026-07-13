@@ -15,13 +15,14 @@ class AppState extends ChangeNotifier {
   final BillingService billing;
 
   static const _kUsedKey = 'jisr_used_messages';
+  static const _kDayKey = 'jisr_quota_day'; // آخر يوم استُخدم فيه الرصيد
   static const _kSubKey = 'jisr_subscribed';
   static const _kSubTypeKey = 'jisr_sub_type';
   static const _kVoiceTrialKey = 'jisr_voice_trial_used'; // ثوانٍ مستخدمة
   static const _kVoiceNotesKey = 'jisr_voice_notes_used'; // رسائل واتساب مستخدمة
-  static const freeLimit = 10; // 10 رسائل مجانية
+  static const freeLimit = 3; // 3 ترجمات مجانية يومياً (تتجدد كل يوم)
   static const voiceTrialSeconds = 180; // 3 دقائق مجانية للغرفة الصوتية
-  static const voiceNotesLimit = 3; // 3 رسائل واتساب مجانية
+  static const voiceNotesLimit = 3; // 3 رسائل واتساب يومياً (تتجدد)
 
   late SharedPreferences _prefs;
 
@@ -42,8 +43,36 @@ class AppState extends ChangeNotifier {
   HealthStatus health = HealthStatus.offline;
   bool ready = false;
 
+  /// مفتاح اليوم الحالي (YYYY-MM-DD) — لتجديد الرصيد يومياً
+  static String _todayKey() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month.toString().padLeft(2, '0')}-'
+        '${n.day.toString().padLeft(2, '0')}';
+  }
+
+  /// يعيد ضبط العدّاد إن تغيّر اليوم (الرصيد يتجدد كل 24 ساعة)
+  Future<void> _resetIfNewDay() async {
+    final today = _todayKey();
+    final saved = _prefs.getString(_kDayKey);
+    if (saved != today) {
+      // يوم جديد → جدّد كل الأرصدة اليومية
+      usedMessages = 0;
+      voiceNotesUsed = 0;
+      await _prefs.setInt(_kUsedKey, 0);
+      await _prefs.setInt(_kVoiceNotesKey, 0);
+      await _prefs.setString(_kDayKey, today);
+    }
+  }
+
   int get freeRemaining => (freeLimit - usedMessages).clamp(0, freeLimit);
   bool get canTranslate => subscribed || freeRemaining > 0;
+
+  /// كم ساعة حتى يتجدد الرصيد المجاني؟
+  int get hoursUntilReset {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    return tomorrow.difference(now).inHours + 1;
+  }
 
   // الغرفة الصوتية: ثوانٍ مجانية متبقية، وهل يمكن الدخول
   int get voiceTrialRemaining =>
@@ -59,6 +88,7 @@ class AppState extends ChangeNotifier {
     try {
       _prefs = await SharedPreferences.getInstance();
       usedMessages = _prefs.getInt(_kUsedKey) ?? 0;
+      await _resetIfNewDay(); // جدّد الرصيد إن كان يوماً جديداً
       subscribed = _prefs.getBool(_kSubKey) ?? false;
       voiceTrialUsed = _prefs.getInt(_kVoiceTrialKey) ?? 0;
       voiceNotesUsed = _prefs.getInt(_kVoiceNotesKey) ?? 0;
@@ -121,8 +151,10 @@ class AppState extends ChangeNotifier {
   /// تُستدعى بعد كل ترجمة ناجحة لخصم رسالة من الرصيد المجاني
   Future<void> consumeMessage() async {
     if (subscribed) return; // المشتركون بلا حد
+    await _resetIfNewDay(); // قد يكون التطبيق مفتوحاً منذ الأمس
     usedMessages++;
     await _prefs.setInt(_kUsedKey, usedMessages);
+    await _prefs.setString(_kDayKey, _todayKey());
     notifyListeners();
   }
 
@@ -137,8 +169,10 @@ class AppState extends ChangeNotifier {
   /// خصم رسالة واتساب من التجربة المجانية (بعد ترجمة ناجحة)
   Future<void> consumeVoiceNote() async {
     if (subscribed) return;
+    await _resetIfNewDay();
     voiceNotesUsed++;
     await _prefs.setInt(_kVoiceNotesKey, voiceNotesUsed);
+    await _prefs.setString(_kDayKey, _todayKey());
     notifyListeners();
   }
 

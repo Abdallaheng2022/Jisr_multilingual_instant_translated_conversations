@@ -71,14 +71,25 @@ class DatabaseService {
     bool contributeToTraining = false,
     double audioClarity = 0.7,
   }) async {
-    // Apply criteria first (we need an id — Supabase generates it, so use a uuid)
+    // نُقيّم دائماً (للاستخدام المحلي)، لكن لا نحفظ شيئاً بلا إذن
     final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final evaluated = CorrectionCriteria.evaluate(
+      id: id,
+      userId: userId,
+      originalText: originalText,
+      correctedText: correctedText,
+      language: language,
+      audioDuration: audioDuration,
+      audioPath: null,
+      audioClarity: audioClarity,
+    );
 
-    // Upload audio only with consent (for training)
+    // ⚠️ بلا إذن → لا يُحفظ شيء (لا نص ولا صوت)
+    if (!contributeToTraining) return evaluated;
+
+    // Upload audio (consent granted)
     String? audioUrl;
-    if (contributeToTraining &&
-        audioLocalPath != null &&
-        File(audioLocalPath).existsSync()) {
+    if (audioLocalPath != null && File(audioLocalPath).existsSync()) {
       try {
         final path = 'training_audio/$language/$id.wav';
         await _db.storage.from('training').upload(path, File(audioLocalPath));
@@ -194,6 +205,87 @@ class DatabaseService {
         reviewCount: r['review_count'] as int? ?? 0,
         mastered: r['mastered'] as bool? ?? false,
       );
+
+  // ── Recordings (كل جلسات الترجمة والتسجيلات) ──
+  /// يحفظ جلسة ترجمة كاملة (نص + ترجمة + صوت)
+  /// ⚠️ لا يُحفظ شيء إن لم يمنح المستخدم الإذن (consent)
+  Future<void> saveRecording({
+    required String userId,
+    required String originalText,
+    required String translatedText,
+    required String sourceLang,
+    required String targetLang,
+    required bool consent, // إذن المستخدم — إلزامي
+    String? correctedText,
+    bool wasCorrected = false,
+    String? audioLocalPath,
+    String? clonedLocalPath,
+    double audioDuration = 0,
+    String section = 'translate',
+  }) async {
+    // بلا إذن → لا حفظ إطلاقاً (لا نص، لا صوت)
+    if (!consent) return;
+
+    // ⚠️ توفير Storage:
+    //    • saveRecording لا يرفع صوتاً إطلاقاً (سجلّ نصي فقط)
+    //    • الصوت يُرفع مرة واحدة فقط عبر saveCorrection (عيّنات التدريب)
+    //    • الصوت المُستنسخ لا يُخزّن (المستخدم سمعه)
+    try {
+      await _db.from('recordings').insert({
+        'user_id': userId,
+        'original_text': originalText,
+        'corrected_text': correctedText,
+        'translated_text': translatedText,
+        'was_corrected': wasCorrected,
+        'source_lang': sourceLang,
+        'target_lang': targetLang,
+        'audio_url': null, // الصوت في جدول corrections (بلا ازدواج)
+        'cloned_audio_url': null,
+        'audio_duration': audioDuration,
+        'section': section,
+        'consent': true,
+      });
+    } catch (e) {
+      // لا نُفشل التطبيق إن تعذّر الحفظ
+    }
+  }
+
+  /// جلب آخر تصحيحات المستخدم (لبناء "معرفة" توجّه النموذج فوراً)
+  /// ⚠️ تُستخدم فقط إن وافق المستخدم
+  Future<List<String>> recentCorrectedTexts(
+    String userId, {
+    required String language,
+    int limit = 8,
+  }) async {
+    try {
+      final rows = await _db
+          .from('corrections')
+          .select('corrected_text')
+          .eq('user_id', userId)
+          .eq('language', language)
+          .eq('status', 'approved')
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return (rows as List)
+          .map((r) => (r['corrected_text'] as String?) ?? '')
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// جلب تسجيلات المستخدم (للعرض/التحليل)
+  Future<List<Map<String, dynamic>>> userRecordings(String userId,
+      {int limit = 100}) async {
+    final rows = await _db
+        .from('recordings')
+        .select()
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return (rows as List).cast<Map<String, dynamic>>();
+  }
 
   // ── Learning summaries ──
   Future<void> saveLearningSummary({

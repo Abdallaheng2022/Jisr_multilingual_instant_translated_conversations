@@ -45,9 +45,22 @@ class TurnBubble extends StatelessWidget {
               GestureDetector(
                 onTap: onEdit,
                 child: Container(
-                  padding: const EdgeInsets.all(6),
-                  child: const Icon(Icons.edit_outlined,
-                      color: AppColors.muted, size: 15),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.amber.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.edit_outlined,
+                        color: AppColors.amber, size: 13),
+                    SizedBox(width: 4),
+                    Text('صحّح',
+                        style: TextStyle(
+                            color: AppColors.amber,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600)),
+                  ]),
                 ),
               ),
           ]),

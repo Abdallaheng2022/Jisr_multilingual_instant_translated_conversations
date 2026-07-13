@@ -95,9 +95,17 @@ class ApiService {
     req.fields['model'] = 'whisper-large-v3';
     if (lang.isNotEmpty) req.fields['language'] = lang;
 
-    // تلميح للنموذج: يحسّن فهم اللهجات العامية
-    final hint = prompt ?? _dialectHint(lang);
-    if (hint.isNotEmpty) req.fields['prompt'] = hint;
+    // تلميح للنموذج: لهجة + معرفة من تصحيحات المستخدم (إن وُجدت)
+    final dialect = _dialectHint(lang);
+    final combined = [
+      if (dialect.isNotEmpty) dialect,
+      if (prompt != null && prompt.trim().isNotEmpty) prompt.trim(),
+    ].join(' ');
+    if (combined.isNotEmpty) {
+      // Whisper يحدّ الـ prompt (~224 رمزاً) — نقتطع بأمان
+      req.fields['prompt'] =
+          combined.length > 800 ? combined.substring(0, 800) : combined;
+    }
 
     // temperature=0 → أكثر التزاماً بالصوت، أقل "تخمين"
     req.fields['temperature'] = '0';

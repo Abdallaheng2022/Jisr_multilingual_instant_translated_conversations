@@ -56,7 +56,7 @@ class VoiceNoteState extends ChangeNotifier {
   /// هل يمكن إجراء عملية جديدة (تجربة مجانية أو اشتراك)
   bool _checkQuota() {
     if (!appState.subscribed && appState.voiceNotesRemaining <= 0) {
-      error = 'انتهت الرسائل المجانية الثلاث — اشترك للمتابعة';
+      error = 'انتهت رسائلك المجانية اليوم — تتجدد بعد ${appState.hoursUntilReset} ساعة، أو اشترك للاستخدام بلا حدود';
       notifyListeners();
       return false;
     }

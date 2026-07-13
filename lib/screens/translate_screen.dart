@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/turn_bubble.dart';
 import '../widgets/edit_transcription_sheet.dart';
+import '../widgets/consent_sheet.dart';
 import 'language_picker_sheet.dart';
 import 'paywall_screen.dart';
 
@@ -20,7 +21,9 @@ class TranslateScreen extends StatelessWidget {
     final app = context.watch<AppState>();
     final trans = context.watch<TranslationState>();
     // زامن معرّف المستخدم لحفظ عبارات التعلّم
-    trans.currentUserId = context.read<AuthState>().user?.uid;
+    final authUser = context.read<AuthState>().user;
+    trans.currentUserId = authUser?.uid;
+    trans.userConsent = authUser?.contributeToTraining ?? false;
 
     return SafeArea(
       child: Padding(
@@ -39,6 +42,13 @@ class TranslateScreen extends StatelessWidget {
               onTapTarget: () => _pickLang(context, isSource: false),
             ),
             const SizedBox(height: 16),
+            // إشعار: يمكنك التصحيح إن وجدت خطأ
+            if (trans.turns.isNotEmpty && !trans.isReviewing) _editHint(),
+            // طلب الإذن (يظهر مرة، بعد أول ترجمة، إن لم يوافق بعد)
+            if (trans.turns.isNotEmpty &&
+                !trans.isReviewing &&
+                !trans.userConsent)
+              _consentBanner(context),
             Expanded(child: _feed(context, trans)),
             // بطاقة المراجعة — تظهر بعد التفريغ لتصحيح النص قبل الترجمة
             if (trans.isReviewing) _ReviewCard(trans: trans, app: app),
@@ -46,6 +56,7 @@ class TranslateScreen extends StatelessWidget {
             const SizedBox(height: 10),
             FreeCounter(
               remaining: app.subscribed ? 999 : app.freeRemaining,
+              hoursUntilReset: app.hoursUntilReset,
               onUpgrade: () => _openPaywall(context),
             ),
             const SizedBox(height: 8),
@@ -101,6 +112,80 @@ class TranslateScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+
+  /// إشعار داخل التطبيق: إن وجدت خطأً، صحّحه وستُعاد الترجمة
+
+  /// شريط طلب الإذن — يظهر إن لم يوافق المستخدم بعد
+  Widget _consentBanner(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _askConsent(context),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.tealSoft(0.08),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+              color: AppColors.teal.withOpacity(0.25), width: 0.5),
+        ),
+        child: Row(children: [
+          const Icon(Icons.school_outlined, color: AppColors.teal, size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'ساعدنا نحسّن الترجمة للعامية — تصحيحاتك تُدرّب التطبيق (اختياري)',
+              style: TextStyle(color: AppColors.textDim, fontSize: 11),
+            ),
+          ),
+          const Text('اعرف أكثر',
+              style: TextStyle(
+                  color: AppColors.teal,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
+  }
+
+  /// يفتح حوار الإذن ويحفظ الاختيار
+  Future<void> _askConsent(BuildContext context) async {
+    final auth = context.read<AuthState>();
+    final agreed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ConsentSheet(
+        currentValue: auth.user?.contributeToTraining ?? false,
+      ),
+    );
+    if (agreed == null) return;
+    await auth.setContributeToTraining(agreed);
+  }
+
+  Widget _editHint() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.amber.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(
+            color: AppColors.amber.withOpacity(0.2), width: 0.5),
+      ),
+      child: Row(children: [
+        const Icon(Icons.lightbulb_outline_rounded,
+            color: AppColors.amber, size: 14),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'وجدت خطأً في النص؟ اضغط «صحّح» — سنعيد الترجمة والنطق بصوتك',
+            style: TextStyle(color: AppColors.textDim, fontSize: 11),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -238,15 +323,18 @@ class TranslateScreen extends StatelessWidget {
     // احفظ التصحيح (يُطبّق المعايير التلقائية)
     final user = auth.user;
     if (user != null) {
-      await trans.saveCorrection(
+      trans.saveCorrection(
         userId: user.uid,
         originalText: turn.original,
         correctedText: corrected,
         language: turn.srcCode,
-        audioDuration: 5.0, // تقدير؛ يُحسب من الصوت فعلياً لاحقاً
+        audioDuration: 5.0,
         contributeToTraining: user.contributeToTraining,
       );
     }
+
+    // أعِد الترجمة والاستنساخ بالنص المصحّح
+    await trans.retranslateTurn(turn, corrected.trim());
   }
 
   void _openPaywall(BuildContext context) {

@@ -118,8 +118,8 @@ class _VoiceNotesScreenState extends State<VoiceNotesScreen> {
             ),
             child: Text(
               app.voiceNotesRemaining > 0
-                  ? '${app.voiceNotesRemaining} مجانية'
-                  : 'انتهت المجانية',
+                  ? '${app.voiceNotesRemaining} مجانية اليوم'
+                  : 'تتجدد بعد ${app.hoursUntilReset}س',
               style: TextStyle(
                 color: app.voiceNotesRemaining > 0
                     ? AppColors.teal

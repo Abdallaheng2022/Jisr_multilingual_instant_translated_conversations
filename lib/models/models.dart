@@ -65,10 +65,11 @@ class TurnResult {
   Language get src => langByCode(srcCode);
   Language get tgt => langByCode(tgtCode);
 
-  TurnResult copyWith({String? translated, String? audioPath}) => TurnResult(
+  TurnResult copyWith({String? original, String? translated, String? audioPath}) =>
+      TurnResult(
         id: id,
         side: side,
-        original: original,
+        original: original ?? this.original,
         translated: translated ?? this.translated,
         srcCode: srcCode,
         tgtCode: tgtCode,
@@ -111,7 +112,7 @@ const kPlans = <SubscriptionPlan>[
     period: 'كل شهر',
     accent: AppColors.tealGradient,
     features: [
-      'ترجمة صوتية غير محدودة',
+      'ترجمة صوتية بلا حدود (بدل 3 يومياً)',
       'استنساخ صوتك بكل اللغات',
       'الغرفة الصوتية بلا حدود',
       'ترجمة رسائل واتساب بلا حدود',
