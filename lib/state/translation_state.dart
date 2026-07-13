@@ -92,7 +92,7 @@ class TranslationState extends ChangeNotifier {
     _maxRecTimer = Timer(const Duration(seconds: maxRecordingSeconds), () {
       if (stage == PipelineStage.recording) {
         error = 'وصلت الحد الأقصى ($maxRecordingSeconds ثانية) — جارٍ المعالجة';
-        stopAndTranslate();
+        stopAndProcess();
       }
     });
     return true;
@@ -100,6 +100,7 @@ class TranslationState extends ChangeNotifier {
 
   /// إيقاف التسجيل وبدء خط المعالجة الكامل
   Future<void> stopAndProcess() async {
+    _maxRecTimer?.cancel();
     if (stage != PipelineStage.recording) return;
     final recPath = await audio.stopRecording();
     if (recPath == null) {
