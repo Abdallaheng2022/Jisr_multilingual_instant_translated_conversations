@@ -287,6 +287,37 @@ class DatabaseService {
     return (rows as List).cast<Map<String, dynamic>>();
   }
 
+  // ── Quota (الرصيد اليومي على الخادم — يتبع الحساب لا الجهاز) ──
+
+  /// يخصم من الرصيد اليومي على الخادم.
+  /// يعيد: {ok, remaining, subscribed} — ok=false يعني نفد الرصيد.
+  Future<Map<String, dynamic>> consumeQuota({
+    required String kind, // 'translate' | 'voice_note'
+    required int limit,
+  }) async {
+    try {
+      final res = await _db.rpc('consume_quota', params: {
+        'p_kind': kind,
+        'p_limit': limit,
+      });
+      return Map<String, dynamic>.from(res as Map);
+    } catch (e) {
+      // فشل الاتصال → نسمح محلياً (لا نمنع المستخدم بسبب مشكلة شبكة)
+      return {'ok': true, 'remaining': -1, 'offline': true};
+    }
+  }
+
+  /// يقرأ الرصيد الحالي (بلا خصم)
+  Future<Map<String, dynamic>?> getQuota() async {
+    try {
+      final res = await _db.rpc('get_quota');
+      final m = Map<String, dynamic>.from(res as Map);
+      return m['ok'] == true ? m : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── Learning summaries ──
   Future<void> saveLearningSummary({
     required String userId,

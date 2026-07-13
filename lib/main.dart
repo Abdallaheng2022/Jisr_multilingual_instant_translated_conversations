@@ -108,7 +108,7 @@ class JisrApp extends StatelessWidget {
           create: (_) => AuthState(auth: auth, db: db),
         ),
         ChangeNotifierProvider(
-          create: (_) => AppState(api: api, billing: billing),
+          create: (_) => AppState(api: api, billing: billing, db: db),
         ),
         ChangeNotifierProvider(
           create: (_) => LearningState(db: db),
@@ -190,6 +190,15 @@ class _Bootstrap extends StatelessWidget {
     // غير مسجّل → شاشة الدخول
     if (!auth.isSignedIn) {
       return const LoginScreen();
+    }
+
+    // مسجّل → اجلب رصيده الحقيقي من الخادم (مرة واحدة)
+    final uid = auth.user?.uid;
+    if (uid != null && app.currentUserId != uid) {
+      // بعد اكتمال البناء لتجنّب notifyListeners أثناء build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        app.syncQuotaFromServer(uid);
+      });
     }
 
     // مسجّل → التطبيق

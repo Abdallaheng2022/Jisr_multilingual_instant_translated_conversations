@@ -4,14 +4,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/billing_service.dart';
+import '../services/database_service.dart';
 
 /// الحالة العامة للتطبيق: عدّاد الرسائل المجانية، الاشتراك، اللغات، الاتصال.
 class AppState extends ChangeNotifier {
-  AppState({required this.api, required this.billing}) {
+  AppState({required this.api, required this.billing, required this.db}) {
     _init();
   }
 
   final ApiService api;
+  final DatabaseService db;
+
+  /// معرّف المستخدم — يُضبط بعد تسجيل الدخول (لتتبّع الرصيد على الخادم)
+  String? currentUserId;
+  bool get _serverQuota => currentUserId != null;
   final BillingService billing;
 
   static const _kUsedKey = 'jisr_used_messages';
@@ -149,10 +155,45 @@ class AppState extends ChangeNotifier {
   }
 
   /// تُستدعى بعد كل ترجمة ناجحة لخصم رسالة من الرصيد المجاني
+  /// يُستدعى بعد تسجيل الدخول — يجلب الرصيد الحقيقي من الخادم
+  /// (يغلق ثغرة إعادة التثبيت: الرصيد يتبع الحساب)
+  Future<void> syncQuotaFromServer(String userId) async {
+    currentUserId = userId;
+    final q = await db.getQuota();
+    if (q == null) return; // بلا اتصال → نُبقي المحلي
+
+    subscribed = q['subscribed'] as bool? ?? subscribed;
+    final usedT = q['used_today'] as int? ?? 0;
+    final usedV = q['voice_notes_today'] as int? ?? 0;
+
+    // الخادم هو الحقيقة — نتبنّى قيمه
+    usedMessages = usedT.clamp(0, freeLimit);
+    voiceNotesUsed = usedV.clamp(0, voiceNotesLimit);
+
+    await _prefs.setInt(_kUsedKey, usedMessages);
+    await _prefs.setInt(_kVoiceNotesKey, voiceNotesUsed);
+    await _prefs.setString(_kDayKey, _todayKey());
+    notifyListeners();
+  }
+
   Future<void> consumeMessage() async {
     if (subscribed) return; // المشتركون بلا حد
-    await _resetIfNewDay(); // قد يكون التطبيق مفتوحاً منذ الأمس
-    usedMessages++;
+
+    // الخادم هو مصدر الحقيقة (الرصيد يتبع الحساب لا الجهاز)
+    if (_serverQuota) {
+      final res = await db.consumeQuota(kind: 'translate', limit: freeLimit);
+      final remaining = res['remaining'];
+      if (remaining is int && remaining >= 0) {
+        usedMessages = (freeLimit - remaining).clamp(0, freeLimit);
+      } else {
+        usedMessages++; // وضع عدم الاتصال
+      }
+    } else {
+      usedMessages++;
+    }
+
+    // نسخة محلية احتياطية
+    await _resetIfNewDay();
     await _prefs.setInt(_kUsedKey, usedMessages);
     await _prefs.setString(_kDayKey, _todayKey());
     notifyListeners();
@@ -169,8 +210,21 @@ class AppState extends ChangeNotifier {
   /// خصم رسالة واتساب من التجربة المجانية (بعد ترجمة ناجحة)
   Future<void> consumeVoiceNote() async {
     if (subscribed) return;
+
+    if (_serverQuota) {
+      final res =
+          await db.consumeQuota(kind: 'voice_note', limit: voiceNotesLimit);
+      final remaining = res['remaining'];
+      if (remaining is int && remaining >= 0) {
+        voiceNotesUsed = (voiceNotesLimit - remaining).clamp(0, voiceNotesLimit);
+      } else {
+        voiceNotesUsed++;
+      }
+    } else {
+      voiceNotesUsed++;
+    }
+
     await _resetIfNewDay();
-    voiceNotesUsed++;
     await _prefs.setInt(_kVoiceNotesKey, voiceNotesUsed);
     await _prefs.setString(_kDayKey, _todayKey());
     notifyListeners();
