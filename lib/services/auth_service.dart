@@ -63,12 +63,16 @@ class AuthService {
   }
 
   /// Sign in with Google (OAuth)
+  /// يفتح صفحة Google، ويعود للتطبيق عبر الـ deep link
   Future<void> signInWithGoogle() async {
-    // Opens Google OAuth flow; result arrives via authStateChanges
-    await _auth.signInWithOAuth(
+    final ok = await _auth.signInWithOAuth(
       OAuthProvider.google,
-      redirectTo: 'io.jisr.app://login-callback',
+      redirectTo: 'com.jisr.app://login-callback',
     );
+    if (!ok) {
+      throw const AuthException('تعذّر فتح صفحة Google');
+    }
+    // النتيجة تصل عبر authStateChanges بعد عودة الـ deep link
   }
 
   /// Sign out
