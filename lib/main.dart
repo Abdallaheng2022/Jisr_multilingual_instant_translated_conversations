@@ -9,6 +9,7 @@ import 'services/audio_service.dart';
 import 'services/billing_service.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
+import 'services/ondevice/ondevice_voice.dart';
 import 'services/room_service.dart';
 import 'state/app_state.dart';
 import 'state/translation_state.dart';
@@ -71,6 +72,10 @@ Future<void> main() async {
   final db = DatabaseService();
   final roomService = RoomService();
 
+  // محرّكات الجهاز للطبقة المجانية (Whisper + Piper، وتنظيف LLM اختياري)
+  // enableLlmCleanup: false افتراضياً — فعّله بعد قياس السرعة على جهاز حقيقي
+  final onDevice = OnDeviceVoice(enableLlmCleanup: false);
+
   runApp(JisrApp(
     api: api,
     audio: audio,
@@ -78,6 +83,7 @@ Future<void> main() async {
     auth: auth,
     db: db,
     roomService: roomService,
+    onDevice: onDevice,
   ));
 }
 
@@ -88,6 +94,7 @@ class JisrApp extends StatelessWidget {
   final AuthService auth;
   final DatabaseService db;
   final RoomService roomService;
+  final OnDeviceVoice onDevice;
 
   const JisrApp({
     super.key,
@@ -97,6 +104,7 @@ class JisrApp extends StatelessWidget {
     required this.auth,
     required this.db,
     required this.roomService,
+    required this.onDevice,
   });
 
   @override
@@ -114,10 +122,12 @@ class JisrApp extends StatelessWidget {
           create: (_) => LearningState(db: db),
         ),
         ChangeNotifierProvider(
-          create: (_) => RoomState(
+          create: (ctx) => RoomState(
             api: api,
             audio: audio,
             rooms: roomService,
+            appState: ctx.read<AppState>(),
+            onDevice: onDevice,
           ),
         ),
         ChangeNotifierProvider(
@@ -125,6 +135,7 @@ class JisrApp extends StatelessWidget {
             api: api,
             audio: audio,
             appState: ctx.read<AppState>(),
+            onDevice: onDevice,
           ),
         ),
         ChangeNotifierProxyProvider<AppState, TranslationState>(
@@ -133,11 +144,16 @@ class JisrApp extends StatelessWidget {
             audio: audio,
             appState: ctx.read<AppState>(),
             db: db,
+            onDevice: onDevice,
           ),
           update: (ctx, appState, prev) =>
               prev ??
               TranslationState(
-                  api: api, audio: audio, appState: appState, db: db),
+                  api: api,
+                  audio: audio,
+                  appState: appState,
+                  db: db,
+                  onDevice: onDevice),
         ),
       ],
       child: MaterialApp(

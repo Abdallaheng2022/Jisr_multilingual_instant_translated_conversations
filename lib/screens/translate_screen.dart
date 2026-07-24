@@ -12,6 +12,7 @@ import '../widgets/edit_transcription_sheet.dart';
 import '../widgets/consent_sheet.dart';
 import 'language_picker_sheet.dart';
 import 'paywall_screen.dart';
+import 'model_download_screen.dart';
 
 class TranslateScreen extends StatelessWidget {
   const TranslateScreen({super.key});
@@ -42,6 +43,8 @@ class TranslateScreen extends StatelessWidget {
               onTapTarget: () => _pickLang(context, isSource: false),
             ),
             const SizedBox(height: 16),
+            // المستخدم المجاني: تذكير بتنزيل نماذج الجهاز (مرة واحدة)
+            if (!app.subscribed) _ModelBanner(trans: trans, app: app),
             // إشعار: يمكنك التصحيح إن وجدت خطأ
             if (trans.turns.isNotEmpty && !trans.isReviewing) _editHint(),
             // طلب الإذن (يظهر مرة، بعد أول ترجمة، إن لم يوافق بعد)
@@ -463,6 +466,95 @@ class _ReviewCardState extends State<_ReviewCard> {
             ),
           ]),
         ],
+      ),
+    );
+  }
+}
+
+/// شريط تنزيل نماذج الجهاز — يظهر للمجاني حتى تجهز نماذج لغتيه.
+/// الترجمة المجانية تعمل على الجهاز (بلا خادم)، لذا تحتاج النماذج مرة واحدة.
+class _ModelBanner extends StatefulWidget {
+  final TranslationState trans;
+  final AppState app;
+  const _ModelBanner({required this.trans, required this.app});
+
+  @override
+  State<_ModelBanner> createState() => _ModelBannerState();
+}
+
+class _ModelBannerState extends State<_ModelBanner> {
+  bool? _ready;
+  String _checkedFor = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  @override
+  void didUpdateWidget(_ModelBanner old) {
+    super.didUpdateWidget(old);
+    _check(); // أعد الفحص إن تغيّرت اللغات
+  }
+
+  Set<String> get _langs =>
+      {widget.app.sourceLang.code, widget.app.targetLang.code};
+
+  Future<void> _check() async {
+    final key = _langs.join(',');
+    if (key == _checkedFor) return; // فُحصت هذه اللغات مسبقاً
+    _checkedFor = key;
+    try {
+      final ok = await widget.trans.onDevice.isReadyFor(_langs);
+      if (mounted) setState(() => _ready = ok);
+    } catch (_) {
+      if (mounted) setState(() => _ready = null);
+    }
+  }
+
+  Future<void> _openDownload() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ModelDownloadScreen(
+        onDevice: widget.trans.onDevice,
+        langs: _langs,
+      ),
+    ));
+    _checkedFor = ''; // أعد الفحص بعد العودة
+    _check();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // جاهزة أو قيد الفحص → لا شريط
+    if (_ready == null || _ready == true) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: _openDownload,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.amber.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border:
+              Border.all(color: AppColors.amber.withOpacity(0.3), width: 0.5),
+        ),
+        child: Row(children: [
+          const Icon(Icons.download_rounded, color: AppColors.amber, size: 15),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'نزّل ملفات اللغة مرة واحدة — بعدها الترجمة تعمل على هاتفك',
+              style: TextStyle(color: AppColors.textDim, fontSize: 11),
+            ),
+          ),
+          const Text('تنزيل',
+              style: TextStyle(
+                  color: AppColors.amber,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+        ]),
       ),
     );
   }

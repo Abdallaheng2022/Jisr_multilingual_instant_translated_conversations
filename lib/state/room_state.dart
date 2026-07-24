@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/ondevice/ondevice_voice.dart';
 import '../services/room_service.dart';
+import 'app_state.dart';
 
 enum RoomStatus { none, creating, waiting, joined, recording, processing }
 
@@ -13,11 +15,19 @@ class RoomState extends ChangeNotifier {
     required this.api,
     required this.audio,
     required this.rooms,
+    required this.appState,
+    required this.onDevice,
   });
 
   final ApiService api;
   final AudioService audio;
   final RoomService rooms;
+
+  /// لمعرفة هل المستخدم مشترك (يحدّد: Modal أم محرّكات الجهاز)
+  final AppState appState;
+
+  /// محرّكات الجهاز (الطبقة المجانية)
+  final OnDeviceVoice onDevice;
 
   RoomStatus status = RoomStatus.none;
   String? roomCode;
@@ -188,8 +198,10 @@ class RoomState extends ChangeNotifier {
     _refAudioPath ??= path;
 
     try {
-      // 1) تفريغ بلغتي
-      final original = await api.transcribe(path: path, lang: myLang);
+      // 1) تفريغ بلغتي — المشترك: Groq | المجاني: Whisper على الجهاز
+      final original = appState.subscribed
+          ? await api.transcribe(path: path, lang: myLang)
+          : await onDevice.transcribe(path: path, lang: myLang);
       if (original.trim().isEmpty) {
         error = 'لم يُسمع كلام واضح';
         status = RoomStatus.joined;
@@ -202,14 +214,16 @@ class RoomState extends ChangeNotifier {
         from: myLang,
         to: otherLang,
       );
-      // 3) استنساخ الترجمة بصوتي (يسمعها الطرف الآخر بنبرتي)
+      // 3) توليد صوت الترجمة — المشترك: بنبرته عبر Modal | المجاني: صوت جاهز
       String? audioUrl;
       try {
-        final clonedPath = await api.synthesize(
-          text: translated,
-          lang: otherLang,
-          refAudioPath: _refAudioPath,
-        );
+        final clonedPath = appState.subscribed
+            ? await api.synthesize(
+                text: translated,
+                lang: otherLang,
+                refAudioPath: _refAudioPath,
+              )
+            : await onDevice.speak(text: translated, lang: otherLang);
         // ارفع الصوت المُستنسخ ليصل للطرف الآخر (عبر Storage)
         audioUrl = await rooms.uploadAudio(clonedPath, roomCode!);
       } catch (e) {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../models/voice_note.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import '../services/ondevice/ondevice_voice.dart';
 import 'app_state.dart';
 
 enum VoiceNoteStage { idle, recording, transcribing, translating, cloning, done }
@@ -16,11 +17,15 @@ class VoiceNoteState extends ChangeNotifier {
     required this.api,
     required this.audio,
     required this.appState,
+    required this.onDevice,
   });
 
   final ApiService api;
   final AudioService audio;
   final AppState appState;
+
+  /// محرّكات الجهاز (الطبقة المجانية)
+  final OnDeviceVoice onDevice;
 
   final List<VoiceNoteTranslation> results = [];
   VoiceNoteStage stage = VoiceNoteStage.idle;
@@ -49,7 +54,8 @@ class VoiceNoteState extends ChangeNotifier {
         VoiceNoteStage.recording => 'جارٍ التسجيل…',
         VoiceNoteStage.transcribing => 'جارٍ التفريغ…',
         VoiceNoteStage.translating => 'جارٍ الترجمة…',
-        VoiceNoteStage.cloning => 'جارٍ الاستنساخ بصوتك…',
+        VoiceNoteStage.cloning =>
+          appState.subscribed ? 'جارٍ الاستنساخ بصوتك…' : 'جارٍ توليد الصوت…',
         VoiceNoteStage.done => '',
       };
 
@@ -164,13 +170,16 @@ class VoiceNoteState extends ChangeNotifier {
       notifyListeners();
       String? clonedPath;
       try {
-        clonedPath = await api.synthesize(
-          text: translated,
-          lang: targetLang,
-          refAudioPath: fingerprintPath,
-        );
+        // المشترك → Modal (بصمته) | المجاني → صوت جاهز على الجهاز
+        clonedPath = appState.subscribed
+            ? await api.synthesize(
+                text: translated,
+                lang: targetLang,
+                refAudioPath: fingerprintPath,
+              )
+            : await onDevice.speak(text: translated, lang: targetLang);
       } catch (e) {
-        debugPrint('فشل الاستنساخ: $e');
+        debugPrint('فشل توليد الصوت: $e');
       }
 
       final now = DateTime.now();
@@ -212,10 +221,12 @@ class VoiceNoteState extends ChangeNotifier {
     required String targetLang,
   }) async {
     try {
-      // 1) تفريغ (Groq)
+      // 1) تفريغ — المشترك: Groq | المجاني: Whisper على الجهاز
       stage = VoiceNoteStage.transcribing;
       notifyListeners();
-      final transcribed = await api.transcribe(path: audioPath, lang: sourceLang);
+      final transcribed = appState.subscribed
+          ? await api.transcribe(path: audioPath, lang: sourceLang)
+          : await onDevice.transcribe(path: audioPath, lang: sourceLang);
       if (transcribed.trim().isEmpty) {
         error = 'لم يُسمع كلام واضح';
         stage = VoiceNoteStage.idle;
@@ -237,14 +248,16 @@ class VoiceNoteState extends ChangeNotifier {
       notifyListeners();
       String? clonedPath;
       try {
-        clonedPath = await api.synthesize(
-          text: translated,
-          lang: targetLang,
-          refAudioPath: fingerprintPath ?? audioPath,
-        );
+        clonedPath = appState.subscribed
+            ? await api.synthesize(
+                text: translated,
+                lang: targetLang,
+                refAudioPath: fingerprintPath ?? audioPath,
+              )
+            : await onDevice.speak(text: translated, lang: targetLang);
       } catch (e) {
-        // إن فشل الاستنساخ، نُبقي الترجمة النصية على الأقل
-        debugPrint('فشل الاستنساخ: $e');
+        // إن فشل توليد الصوت، نُبقي الترجمة النصية على الأقل
+        debugPrint('فشل توليد الصوت: $e');
       }
 
       // 4) العلامة المائية

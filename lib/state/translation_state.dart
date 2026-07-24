@@ -8,6 +8,7 @@ import '../models/learning.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
 import '../services/database_service.dart';
+import '../services/ondevice/ondevice_voice.dart';
 import 'app_state.dart';
 
 enum PipelineStage { idle, recording, transcribing, reviewing, translating, speaking }
@@ -19,12 +20,16 @@ class TranslationState extends ChangeNotifier {
     required this.audio,
     required this.appState,
     required this.db,
+    required this.onDevice,
   });
 
   final ApiService api;
   final AudioService audio;
   final AppState appState;
   final DatabaseService db;
+
+  /// محرّكات الجهاز (الطبقة المجانية) — تُستخدم عندما !appState.subscribed
+  final OnDeviceVoice onDevice;
 
   /// معرّف المستخدم الحالي (يُضبط من الشاشة) — لحفظ عبارات التعلّم
   String? currentUserId;
@@ -65,7 +70,9 @@ class TranslationState extends ChangeNotifier {
       PipelineStage.transcribing => 'جارٍ التفريغ…',
       PipelineStage.reviewing => 'راجع النص قبل الترجمة',
       PipelineStage.translating => 'جارٍ الترجمة…',
-      PipelineStage.speaking => 'جارٍ النطق بصوتك…',
+      // المشترك يسمع صوته المستنسخ؛ المجاني يسمع صوتاً جاهزاً
+      PipelineStage.speaking =>
+        appState.subscribed ? 'جارٍ النطق بصوتك…' : 'جارٍ النطق…',
     };
   }
 
@@ -236,11 +243,17 @@ class TranslationState extends ChangeNotifier {
       final clipped = translated.length > maxCloneChars
           ? translated.substring(0, maxCloneChars)
           : translated;
-      final audioPath = await api.synthesize(
-        text: clipped,
-        lang: appState.targetLang.code,
-        refAudioPath: _refAudioPath,
-      );
+      // المشترك → استنساخ صوته على Modal | المجاني → صوت جاهز على الجهاز
+      final audioPath = appState.subscribed
+          ? await api.synthesize(
+              text: clipped,
+              lang: appState.targetLang.code,
+              refAudioPath: _refAudioPath,
+            )
+          : await onDevice.speak(
+              text: clipped,
+              lang: appState.targetLang.code,
+            );
 
       // حدّث الدور بمسار الصوت وشغّله
       final idx = turns.indexWhere((t) => t.id == turn.id);
@@ -303,11 +316,13 @@ class TranslationState extends ChangeNotifier {
       // 2) استنساخ الترجمة الجديدة بنبرة المستخدم
       stage = PipelineStage.speaking;
       notifyListeners();
-      final audioPath = await api.synthesize(
-        text: translated,
-        lang: turn.tgtCode,
-        refAudioPath: _refAudioPath,
-      );
+      final audioPath = appState.subscribed
+          ? await api.synthesize(
+              text: translated,
+              lang: turn.tgtCode,
+              refAudioPath: _refAudioPath,
+            )
+          : await onDevice.speak(text: translated, lang: turn.tgtCode);
 
       // 3) حدّث الدور بالنص والترجمة والصوت الجديد
       final idx = turns.indexWhere((t) => t.id == turn.id);
@@ -367,6 +382,11 @@ class TranslationState extends ChangeNotifier {
 
   Future<String> _transcribe(String path) async {
     final lang = appState.sourceLang.code;
+
+    // المجاني: تفريغ (+تنظيف) على الجهاز — بلا خادم وبلا حصّة Groq
+    if (!appState.subscribed) {
+      return onDevice.transcribe(path: path, lang: lang);
+    }
 
     // المسار الثاني: "معرفة" فورية من تصحيحات المستخدم السابقة
     // تُستخدم فقط إن وافق المستخدم — بلا إذن لا نقرأ ولا نستخدم شيئاً

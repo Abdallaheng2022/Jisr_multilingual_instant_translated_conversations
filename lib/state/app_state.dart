@@ -122,6 +122,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshHealth() async {
+    // المجاني لا يستخدم Modal إطلاقاً — لا توقظ الحاوية بلا داعٍ (توفير تكلفة)
+    if (!subscribed) {
+      health = HealthStatus.connected;
+      notifyListeners();
+      return;
+    }
     health = await api.checkHealth();
     notifyListeners();
   }

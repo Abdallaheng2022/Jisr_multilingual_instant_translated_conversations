@@ -43,6 +43,10 @@ dependencies:
   path_provider: ^2.1.4
   uuid: ^4.5.1
 
+  # الطبقة المجانية على الجهاز (بلا Modal/Groq)
+  sherpa_onnx: ^1.10.0   # تفريغ Whisper + نطق Piper محلياً
+  archive: ^3.6.1        # فكّ أرشيفات النماذج
+
   # Fonts / icons
   cupertino_icons: ^1.0.8
 
